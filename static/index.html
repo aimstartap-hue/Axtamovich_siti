@@ -1,0 +1,134 @@
+<!DOCTYPE html>
+<html lang="uz">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>AXO-OPEN group</title>
+    <link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+    <!-- LOGIN -->
+    <div id="login-screen" class="login-wrap">
+        <div class="login-card">
+            <div class="logo">AXO<span>·</span>OPEN group</div>
+            <p class="sub" data-i18n="tagline">Ko'p tarmoqli bizneslar uchun AXO boshqaruv tizimi</p>
+            <input id="login-username" data-i18n-ph="login" placeholder="Login" autocomplete="username">
+            <input id="login-password" type="password" data-i18n-ph="password" placeholder="Parol" autocomplete="current-password">
+            <button id="login-btn" class="btn btn-primary" data-i18n="signin">Kirish</button>
+            <div class="lang-row">
+                <button class="lang-btn" data-lang="uz">O'zbek</button>
+                <button class="lang-btn" data-lang="ru">Русский</button>
+            </div>
+            <div id="login-error" class="error"></div>
+            <div class="demo-hint">
+                <b data-i18n="demo_logins">Sinov uchun loginlar</b> (<span data-i18n="password">Parol</span>: <code>123</code>, admin: <code>admin123</code>):<br>
+                <code>manager1</code> · <code>regmen1</code> · <code>ceo1</code> · <code>finance1</code> ·
+                <code>ops1</code> · <code>axo1</code> · <code>open1</code> · <code>hr1</code> ·
+                <code>oper</code>/<code>oper123</code> · <code>admin</code>/<code>admin123</code>
+            </div>
+        </div>
+    </div>
+
+    <!-- APP -->
+    <div id="app" class="hidden">
+        <header class="topbar">
+            <button id="menu-toggle" class="menu-toggle" title="Menyu">
+                ☰ <span id="menu-badge" class="nav-badge hidden">0</span>
+            </button>
+            <div class="brand">AXO<span>·</span>OPEN group</div>
+            <div class="user-box">
+                <button id="settings-toggle" class="icon-btn" title="Sozlamalar">⚙️</button>
+                <span id="user-name"></span>
+                <span id="user-role" class="badge"></span>
+                <button id="logout-btn" class="btn btn-ghost" data-i18n="logout">Chiqish</button>
+            </div>
+        </header>
+
+        <!-- Shaxsiy sozlamalar popover -->
+        <div id="settings-pop" class="settings-pop hidden">
+            <div class="sp-title" data-i18n="appearance">Ko'rinish sozlamalari</div>
+            <div class="sp-row">
+                <span data-i18n="language">Til</span>
+                <div class="seg" id="seg-lang">
+                    <button data-lang="uz">O'zbek</button>
+                    <button data-lang="ru">Русский</button>
+                </div>
+            </div>
+            <div class="sp-row">
+                <span data-i18n="theme">Mavzu</span>
+                <div class="seg" id="seg-theme">
+                    <button data-theme="dark" data-i18n="dark">Qora</button>
+                    <button data-theme="light" data-i18n="light">Oq</button>
+                </div>
+            </div>
+            <div class="sp-row">
+                <span data-i18n="accent">Asosiy rang</span>
+                <div class="swatches" id="accent-swatches"></div>
+            </div>
+        </div>
+
+        <!-- MENYU (drawer) -->
+        <div id="drawer-overlay" class="drawer-overlay hidden"></div>
+        <aside id="drawer" class="drawer hidden">
+            <div class="drawer-head">AXO<span style="color:var(--primary)">·</span>OPEN</div>
+            <nav class="drawer-nav">
+                <button class="menu-item" data-view="dashboard" data-i18n="dashboard">📊 Boshqaruv paneli</button>
+                <div class="drawer-sep"></div>
+                <button class="menu-item active" data-view="requests" data-type="all">📋 <span data-i18n="all_requests">Barcha zayavkalar</span> <span id="menu-badge2" class="nav-badge hidden">0</span></button>
+                <button class="menu-item" data-view="requests" data-type="maintenance" data-i18n="maintenance_requests">🔧 Texnik zayavkalar</button>
+                <button class="menu-item" data-view="requests" data-type="new_branch" data-i18n="new_branch_requests">🏗 Yangi filial so'rovlari</button>
+                <div class="drawer-sep"></div>
+                <button class="menu-item" data-view="stats" data-i18n="reports">📈 Hisobot va analitika</button>
+                <button class="menu-item hidden" id="menu-admin" data-view="admin" data-i18n="settings">⚙️ Sozlamalar</button>
+            </nav>
+            <div class="drawer-foot">
+                <span data-i18n="theme">Mavzu</span>:
+                <button class="link-btn" id="drawer-theme">🌙 / ☀️</button>
+            </div>
+        </aside>
+
+        <main class="container">
+            <!-- VIEW: Dashboard -->
+            <section id="view-dashboard" class="view hidden">
+                <div class="toolbar"><h2 data-i18n="dashboard">Boshqaruv paneli</h2></div>
+                <div id="dashboard-content"></div>
+            </section>
+
+            <!-- VIEW: Zayavkalar -->
+            <section id="view-requests" class="view">
+                <div class="toolbar">
+                    <h2 id="requests-title">Barcha zayavkalar</h2>
+                    <div>
+                        <button id="new-maintenance-btn" class="btn btn-primary hidden" data-i18n="new_request">+ Yangi zayavka</button>
+                        <button id="new-branch-btn" class="btn btn-primary hidden" data-i18n="new_branch_req">+ Yangi filial so'rovi</button>
+                    </div>
+                </div>
+                <div class="filters">
+                    <button class="chip active" data-filter="all" data-i18n="f_all">Hammasi</button>
+                    <button class="chip" data-filter="mine" data-i18n="f_mine">⚡ Menga kerak</button>
+                    <button class="chip" data-filter="active" data-i18n="f_active">Faol</button>
+                    <button class="chip" data-filter="closed" data-i18n="f_closed">Yopilgan</button>
+                </div>
+                <div id="requests-list" class="cards"></div>
+            </section>
+
+            <!-- VIEW: Hisobot -->
+            <section id="view-stats" class="view hidden">
+                <div class="toolbar"><h2 data-i18n="reports_title">Hisobot va analitika</h2></div>
+                <div id="stats-content"></div>
+            </section>
+
+            <!-- VIEW: Admin -->
+            <section id="view-admin" class="view hidden">
+                <div class="toolbar"><h2 data-i18n="settings">Sozlamalar</h2></div>
+                <div id="admin-content"></div>
+            </section>
+        </main>
+    </div>
+
+    <!-- MODAL container -->
+    <div id="modal-root"></div>
+
+    <script src="/static/app.js"></script>
+</body>
+</html>

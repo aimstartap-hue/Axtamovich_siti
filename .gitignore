@@ -1,0 +1,16 @@
+# Ma'lumotlar bazasi va yuklangan fayllar (versiya nazoratiga kirmaydi)
+app.db
+app.db-journal
+uploads/*
+!uploads/.gitkeep
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
+
+# OS / tahrirlovchi
+Thumbs.db
+.DS_Store
+.vscode/
+.idea/
