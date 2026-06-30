@@ -110,6 +110,8 @@ async function showApp() {
     $("#new-maintenance-btn").classList.toggle("hidden", !(ME.role === "branch_manager" || ME.role === "admin"));
     $("#new-branch-btn").classList.toggle("hidden", !(ME.role === "open_group" || ME.role === "admin"));
     $("#menu-admin").classList.toggle("hidden", !isAdmin);
+    $("#menu-budget").classList.toggle("hidden", !["finance", "ceo", "admin", "oper"].includes(ME.role));
+    $("#menu-assets").classList.toggle("hidden", ME.role === "oper");
     $("#bn-add").classList.toggle("hidden", !(ME.role === "branch_manager" || ME.role === "open_group" || ME.role === "admin"));
     applySettings();
     // rasxod turlari (bo'limlar bilan)
@@ -148,6 +150,8 @@ function switchView(view, type) {
     if (view === "stats") loadStats();
     if (view === "admin") loadAdmin();
     if (view === "dashboard") loadDashboard();
+    if (view === "budget") loadBudget();
+    if (view === "assets") loadAssets();
     closeDrawer();
 }
 function openDrawer() { $("#drawer").classList.remove("hidden"); $("#drawer-overlay").classList.remove("hidden"); }
@@ -721,6 +725,110 @@ async function loadStats() {
                 <div class="status-pill"><span class="type-tag type-new_branch">Yangi filial</span><b>${s.type_counts.new_branch || 0}</b></div>
             </div>
         </div>`;
+}
+
+// ---------------- BYUDJET ----------------
+let BUDGET_MONTH = new Date().toISOString().slice(0, 7);
+async function loadBudget() {
+    const { data } = await api("/api/budgets?month=" + BUDGET_MONTH);
+    if (!data || data.error) { $("#budget-content").innerHTML = `<p class="muted">Ruxsat yo'q.</p>`; return; }
+    const rows = data.branches.map((b) => {
+        const pct = b.budget > 0 ? Math.min(100, Math.round(b.spent / b.budget * 100)) : 0;
+        const over = b.budget > 0 && b.spent > b.budget;
+        return `
+        <div class="budget-card">
+            <div class="bc-top"><b>${esc(b.name)}</b>
+                ${data.can_edit ? `<button class="link-btn" onclick="openBudgetForm(${b.branch_id}, '${esc(b.name)}', ${b.budget})">✏️ Byudjet</button>` : ""}</div>
+            <div class="bar-track" style="margin:8px 0"><div class="bar-fill" style="width:${pct}%;background:${over ? "var(--red)" : "var(--green)"}"></div></div>
+            <div class="info-row" style="justify-content:space-between">
+                <span>Byudjet: <b>${fmtMoney(b.budget)}</b></span>
+                <span>Sarflandi: <b>${fmtMoney(b.spent)}</b></span>
+                <span class="${over ? "overdue" : "ok-tag"}">${over ? "Oshib ketdi: " + fmtMoney(-b.remaining) : "Qoldiq: " + fmtMoney(b.remaining)}</span>
+            </div>
+        </div>`;
+    }).join("");
+    $("#budget-content").innerHTML = `
+        <div class="export-row">
+            <label class="muted">Oy:</label>
+            <input type="month" id="budget-month" value="${BUDGET_MONTH}" onchange="BUDGET_MONTH=this.value;loadBudget()">
+        </div>
+        <div class="budget-grid">${rows || `<p class="muted">${t("no_data")}</p>`}</div>`;
+}
+function openBudgetForm(branchId, name, current) {
+    showModal(`
+        <button class="modal-close" onclick="closeModal()">&times;</button>
+        <h3>Byudjet — ${esc(name)}</h3>
+        <p class="muted">Oy: ${BUDGET_MONTH}</p>
+        <div class="field"><label>Oylik byudjet (so'm)</label><input type="number" id="bud-amount" min="0" value="${current || ""}" autocomplete="off"></div>
+        <div class="modal-actions">
+            <button class="btn btn-ghost" onclick="closeModal()">Bekor</button>
+            <button class="btn btn-primary" onclick="saveBudget(${branchId})">💾 Saqlash</button>
+        </div>`);
+}
+async function saveBudget(branchId) {
+    const { ok, data } = await api("/api/budgets", "POST", {
+        branch_id: branchId, month: BUDGET_MONTH, amount: parseFloat($("#bud-amount").value) || 0,
+    });
+    if (ok) { closeModal(); loadBudget(); }
+    else alert((data && data.error) || "Xatolik");
+}
+
+// ---------------- AKTIVLAR ----------------
+async function loadAssets() {
+    const [{ data }, { data: branches }] = await Promise.all([api("/api/assets"), api("/api/branches")]);
+    if (!data || data.error) { $("#assets-content").innerHTML = `<p class="muted">Ruxsat yo'q.</p>`; return; }
+    const today = new Date().toISOString().slice(0, 10);
+    const rows = data.assets.map((a) => {
+        const warnOut = a.warranty_until && a.warranty_until < today;
+        return `<tr>
+            <td>${esc(a.name)}</td><td>${esc(a.category)}</td><td>${esc(a.branch)}</td>
+            <td>${esc(a.serial)}</td><td>${esc(a.purchase_date)}</td>
+            <td class="${warnOut ? "overdue" : ""}">${esc(a.warranty_until)}${warnOut ? " ⚠️" : ""}</td>
+            <td>${data.can_edit ? `<button class="link-btn" style="color:var(--red)" onclick="deleteAsset(${a.id})">O'chirish</button>` : ""}</td>
+        </tr>`;
+    }).join("");
+    $("#assets-content").innerHTML = `
+        ${data.can_edit ? `<div class="export-row"><button class="btn btn-primary btn-sm" onclick='openAssetForm(${JSON.stringify(branches || [])})'>+ Jihoz qo'shish</button></div>` : ""}
+        <div class="table-wrap"><table class="items-table">
+            <tr><th>Nomi</th><th>Turi</th><th>Filial</th><th>Seriya</th><th>Olingan</th><th>Kafolat</th><th></th></tr>
+            ${rows || `<tr><td colspan="7" class="muted">Jihoz yo'q.</td></tr>`}
+        </table></div>`;
+}
+function openAssetForm(branches) {
+    const opts = (branches || []).map((b) => `<option value="${b.id}">${esc(b.name)}</option>`).join("");
+    showModal(`
+        <button class="modal-close" onclick="closeModal()">&times;</button>
+        <h3>Yangi jihoz / aktiv</h3>
+        <div class="field"><label>Nomi</label><input id="as-name" autocomplete="off" placeholder="Masalan: Sovutgich Liebherr"></div>
+        <div class="field"><label>Turi</label><input id="as-cat" autocomplete="off" placeholder="Masalan: Холодильное оборудование"></div>
+        <div class="field"><label>Filial</label><select id="as-branch"><option value="">—</option>${opts}</select></div>
+        <div class="field"><label>Seriya raqami</label><input id="as-serial" autocomplete="off"></div>
+        <div class="field"><label>Olingan sana</label><input type="date" id="as-pdate"></div>
+        <div class="field"><label>Kafolat tugashi</label><input type="date" id="as-warranty"></div>
+        <div class="field"><label>Izoh</label><input id="as-note" autocomplete="off"></div>
+        <div class="modal-actions">
+            <button class="btn btn-ghost" onclick="closeModal()">Bekor</button>
+            <button class="btn btn-primary" onclick="saveAsset()">💾 Saqlash</button>
+        </div>`);
+}
+async function saveAsset() {
+    const name = $("#as-name").value.trim();
+    if (!name) { alert("Nom kiriting"); return; }
+    const body = {
+        name, category: $("#as-cat").value, serial: $("#as-serial").value,
+        purchase_date: $("#as-pdate").value, warranty_until: $("#as-warranty").value, note: $("#as-note").value,
+    };
+    const bv = $("#as-branch").value;
+    if (bv) body.branch_id = parseInt(bv);
+    const { ok, data } = await api("/api/assets", "POST", body);
+    if (ok) { closeModal(); loadAssets(); }
+    else alert((data && data.error) || "Xatolik");
+}
+async function deleteAsset(id) {
+    if (!confirm("Jihoz o'chirilsinmi?")) return;
+    const { ok, data } = await api(`/api/assets/${id}/delete`, "POST", {});
+    if (ok) loadAssets();
+    else alert((data && data.error) || "Xatolik");
 }
 
 // ---------------- ADMIN ----------------

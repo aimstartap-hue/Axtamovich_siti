@@ -93,6 +93,8 @@
                 <button class="menu-item" data-view="requests" data-type="new_branch" data-i18n="new_branch_requests">🏗 Yangi filial so'rovlari</button>
                 <div class="drawer-sep"></div>
                 <button class="menu-item" data-view="stats" data-i18n="reports">📈 Hisobot va analitika</button>
+                <button class="menu-item hidden" id="menu-budget" data-view="budget">💰 Byudjetlar</button>
+                <button class="menu-item hidden" id="menu-assets" data-view="assets">🧰 Aktivlar / Jihozlar</button>
                 <button class="menu-item hidden" id="menu-admin" data-view="admin" data-i18n="settings">⚙️ Sozlamalar</button>
             </nav>
             <div class="drawer-foot">
@@ -131,6 +133,18 @@
             <section id="view-stats" class="view hidden">
                 <div class="toolbar"><h2 data-i18n="reports_title">Hisobot va analitika</h2></div>
                 <div id="stats-content"></div>
+            </section>
+
+            <!-- VIEW: Byudjet -->
+            <section id="view-budget" class="view hidden">
+                <div class="toolbar"><h2>💰 Filial byudjetlari</h2></div>
+                <div id="budget-content"></div>
+            </section>
+
+            <!-- VIEW: Aktivlar -->
+            <section id="view-assets" class="view hidden">
+                <div class="toolbar"><h2>🧰 Aktivlar / Jihozlar</h2></div>
+                <div id="assets-content"></div>
             </section>
 
             <!-- VIEW: Admin -->

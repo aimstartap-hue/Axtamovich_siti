@@ -221,6 +221,24 @@ def init_db():
             text TEXT NOT NULL,
             created_at TEXT NOT NULL
         );
+        CREATE TABLE IF NOT EXISTS budgets (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            branch_id INTEGER NOT NULL REFERENCES branches(id),
+            month TEXT NOT NULL,
+            amount REAL NOT NULL DEFAULT 0,
+            UNIQUE(branch_id, month)
+        );
+        CREATE TABLE IF NOT EXISTS assets (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            branch_id INTEGER REFERENCES branches(id),
+            name TEXT NOT NULL,
+            category TEXT,
+            serial TEXT,
+            purchase_date TEXT,
+            warranty_until TEXT,
+            note TEXT,
+            created_at TEXT NOT NULL
+        );
         """
     )
     conn.commit()
@@ -683,6 +701,47 @@ class Handler(BaseHTTPRequestHandler):
             conn.close()
             return self.send_csv("xarajatlar.csv", rows)
 
+        if path == "/api/budgets":
+            from urllib.parse import parse_qs
+            qs = parse_qs(urlparse(self.path).query)
+            month = (qs.get("month", [None])[0]) or datetime.now().strftime("%Y-%m")
+            conn = db()
+            branches = conn.execute("SELECT * FROM branches ORDER BY status DESC, name").fetchall()
+            allowed = user["branch_id"] if user["role"] == "branch_manager" else None
+            out = []
+            for b in branches:
+                if allowed is not None and b["id"] != allowed:
+                    continue
+                bud = conn.execute("SELECT amount FROM budgets WHERE branch_id=? AND month=?", (b["id"], month)).fetchone()
+                spent = conn.execute(
+                    "SELECT COALESCE(SUM(rp.total),0) AS s FROM reports rp JOIN requests req ON req.id=rp.request_id "
+                    "WHERE req.branch_id=? AND substr(rp.created_at,1,7)=?", (b["id"], month)
+                ).fetchone()["s"] or 0
+                amount = bud["amount"] if bud else 0
+                out.append({"branch_id": b["id"], "name": b["name"], "status": b["status"],
+                            "budget": amount, "spent": spent, "remaining": amount - spent})
+            conn.close()
+            return self.send_json({
+                "month": month, "branches": out,
+                "can_edit": user["role"] in ("finance", "admin", "oper"),
+            })
+
+        if path == "/api/assets":
+            conn = db()
+            allowed = user["branch_id"] if user["role"] == "branch_manager" else None
+            rows = conn.execute("SELECT * FROM assets ORDER BY id DESC").fetchall()
+            out = []
+            for a in rows:
+                if allowed is not None and a["branch_id"] != allowed:
+                    continue
+                br = conn.execute("SELECT name FROM branches WHERE id=?", (a["branch_id"],)).fetchone() if a["branch_id"] else None
+                out.append({"id": a["id"], "name": a["name"], "category": a["category"] or "",
+                            "branch": br["name"] if br else "", "serial": a["serial"] or "",
+                            "purchase_date": a["purchase_date"] or "", "warranty_until": a["warranty_until"] or "",
+                            "note": a["note"] or ""})
+            conn.close()
+            return self.send_json({"assets": out, "can_edit": user["role"] in ("admin", "oper", "axo")})
+
         if path == "/api/notifications":
             conn = db()
             rows = conn.execute(
@@ -852,6 +911,29 @@ class Handler(BaseHTTPRequestHandler):
             conn.commit()
             conn.close()
             return self.send_json({"ok": True})
+
+        if path == "/api/budgets":
+            if user["role"] not in ("finance", "admin", "oper"):
+                return self.send_json({"error": "Faqat Moliya/Admin byudjet belgilaydi"}, 403)
+            data = self.read_json()
+            try:
+                bid = int(data.get("branch_id"))
+                amount = float(data.get("amount"))
+            except (TypeError, ValueError):
+                return self.send_json({"error": "Noto'g'ri ma'lumot"}, 400)
+            month = (data.get("month") or "").strip() or datetime.now().strftime("%Y-%m")
+            conn = db()
+            conn.execute(
+                "INSERT INTO budgets(branch_id,month,amount) VALUES(?,?,?) "
+                "ON CONFLICT(branch_id,month) DO UPDATE SET amount=excluded.amount",
+                (bid, month, amount),
+            )
+            conn.commit()
+            conn.close()
+            return self.send_json({"ok": True})
+
+        if path == "/api/assets" or (path.startswith("/api/assets/") and path.endswith("/delete")):
+            return self.handle_assets_post(user, path)
 
         # --- Admin/Operator amallari ---
         if path in ("/api/users", "/api/branches") or path.startswith("/api/users/") or path.startswith("/api/branches/"):
@@ -1205,6 +1287,37 @@ class Handler(BaseHTTPRequestHandler):
         conn.commit()
         conn.close()
         return self.send_json({"ok": True})
+
+    def handle_assets_post(self, user, path):
+        if user["role"] not in ("admin", "oper", "axo"):
+            return self.send_json({"error": "Aktivlarni faqat AXO/Admin boshqaradi"}, 403)
+        conn = db()
+        try:
+            if path.endswith("/delete"):
+                aid = int(path.split("/")[3])
+                conn.execute("DELETE FROM assets WHERE id=?", (aid,))
+                conn.commit()
+                return self.send_json({"ok": True})
+            data = self.read_json()
+            name = (data.get("name") or "").strip()
+            if not name:
+                return self.send_json({"error": "Nom kiritilmadi"}, 400)
+            bid = data.get("branch_id")
+            try:
+                bid = int(bid)
+            except (TypeError, ValueError):
+                bid = None
+            conn.execute(
+                "INSERT INTO assets(branch_id,name,category,serial,purchase_date,warranty_until,note,created_at) "
+                "VALUES(?,?,?,?,?,?,?,?)",
+                (bid, name, (data.get("category") or "").strip(), (data.get("serial") or "").strip(),
+                 (data.get("purchase_date") or "").strip(), (data.get("warranty_until") or "").strip(),
+                 (data.get("note") or "").strip(), now()),
+            )
+            conn.commit()
+            return self.send_json({"ok": True})
+        finally:
+            conn.close()
 
     # --- Admin ---
     def handle_admin(self, path):
