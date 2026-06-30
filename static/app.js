@@ -120,6 +120,10 @@ async function showApp() {
     // Operator to'g'ridan-to'g'ri sozlamalarga, qolganlar Boshqaruv paneliga
     if (ME.role === "oper") switchView("admin");
     else switchView("dashboard");
+    // bildirishnomalar
+    loadNotifications(false);
+    if (window.__notifTimer) clearInterval(window.__notifTimer);
+    window.__notifTimer = setInterval(() => loadNotifications(false), 30000);
 }
 
 // ---------------- NAVIGATION (Menyu) ----------------
@@ -171,6 +175,37 @@ document.querySelectorAll("#seg-lang button").forEach((b) => { b.onclick = () =>
 document.querySelectorAll("#seg-theme button").forEach((b) => { b.onclick = () => setTheme(b.dataset.theme); });
 document.querySelectorAll(".lang-btn").forEach((b) => { b.onclick = () => setLang(b.dataset.lang); });
 $("#drawer-theme").onclick = () => setTheme(THEME === "dark" ? "light" : "dark");
+
+// ---------------- BILDIRISHNOMALAR ----------------
+async function loadNotifications(openPanel) {
+    const { data } = await api("/api/notifications");
+    if (!data) return;
+    const badge = $("#notif-badge");
+    badge.textContent = data.unread;
+    badge.classList.toggle("hidden", !data.unread);
+    if (openPanel) {
+        const list = $("#notif-list");
+        list.innerHTML = data.items.length ? data.items.map((n) => `
+            <div class="notif-item ${n.is_read ? "" : "unread"}" ${n.request_id ? `onclick="openNotif(${n.request_id})"` : ""}>
+                <div class="ni-text">${esc(n.text)}</div>
+                <div class="ni-at">${n.at}</div>
+            </div>`).join("") : `<p class="muted" style="padding:8px">Bildirishnoma yo'q.</p>`;
+    }
+}
+function openNotif(rid) { $("#notif-pop").classList.add("hidden"); openDetail(rid); }
+$("#notif-toggle").onclick = async (e) => {
+    e.stopPropagation();
+    const pop = $("#notif-pop");
+    const willOpen = pop.classList.contains("hidden");
+    pop.classList.toggle("hidden");
+    $("#settings-pop").classList.add("hidden");
+    if (willOpen) { await loadNotifications(true); await api("/api/notifications/read", "POST"); loadNotifications(false); }
+};
+$("#notif-readall").onclick = async (e) => { e.stopPropagation(); await api("/api/notifications/read", "POST"); loadNotifications(true); };
+document.addEventListener("click", (e) => {
+    const pop = $("#notif-pop");
+    if (pop && !pop.classList.contains("hidden") && !pop.contains(e.target) && e.target.id !== "notif-toggle") pop.classList.add("hidden");
+});
 
 $("#login-btn").onclick = async () => {
     const { ok, data } = await api("/api/login", "POST", {

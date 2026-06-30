@@ -204,6 +204,14 @@ def init_db():
             qty REAL DEFAULT 1,
             price REAL DEFAULT 0
         );
+        CREATE TABLE IF NOT EXISTS notifications (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            user_id INTEGER NOT NULL REFERENCES users(id),
+            request_id INTEGER REFERENCES requests(id),
+            text TEXT NOT NULL,
+            is_read INTEGER DEFAULT 0,
+            created_at TEXT NOT NULL
+        );
         """
     )
     conn.commit()
@@ -365,6 +373,40 @@ def needs_action(request, role):
     if role == "hr" and request["status"] == "hr_review":
         return True
     return False
+
+
+# Status -> shu bosqichda harakat qilishi kerak bo'lgan rollar (bildirishnoma uchun)
+NOTIFY_ROLES = {
+    "pending_axo": ["axo"],
+    "pending_ceo": ["ceo"],
+    "pending_finance": ["finance"],
+    "approved": ["axo"],
+    "report_submitted": ["ceo", "finance"],
+    "deadline_dispute": ["ceo"],
+    "funded": ["open_group"],
+    "hr_review": ["hr"],
+}
+
+
+def add_notification(conn, user_id, request_id, text):
+    conn.execute(
+        "INSERT INTO notifications(user_id,request_id,text,is_read,created_at) VALUES(?,?,?,0,?)",
+        (user_id, request_id, text, now()),
+    )
+
+
+def notify_change(conn, rid, new_status, actor_id, creator_id, action_text):
+    """Status o'zgargach: keyingi mas'ul rollarga + zayavka egasiga bildirishnoma."""
+    recipients = set()
+    for role in NOTIFY_ROLES.get(new_status, []):
+        for u in conn.execute("SELECT id FROM users WHERE role=?", (role,)).fetchall():
+            recipients.add(u["id"])
+    if creator_id:
+        recipients.add(creator_id)
+    recipients.discard(actor_id)
+    text = f"#{rid}: {action_text}"
+    for uid in recipients:
+        add_notification(conn, uid, rid, text)
 
 
 def can_view(request, user):
@@ -580,6 +622,21 @@ class Handler(BaseHTTPRequestHandler):
                 "type_groups": TYPE_GROUPS,
             })
 
+        if path == "/api/notifications":
+            conn = db()
+            rows = conn.execute(
+                "SELECT * FROM notifications WHERE user_id=? ORDER BY id DESC LIMIT 40", (user["id"],)
+            ).fetchall()
+            unread = conn.execute(
+                "SELECT COUNT(*) FROM notifications WHERE user_id=? AND is_read=0", (user["id"],)
+            ).fetchone()[0]
+            conn.close()
+            return self.send_json({
+                "unread": unread,
+                "items": [{"id": n["id"], "request_id": n["request_id"], "text": n["text"],
+                           "is_read": bool(n["is_read"]), "at": n["created_at"]} for n in rows],
+            })
+
         conn = db()
         if path == "/api/branches":
             rows = conn.execute("SELECT * FROM branches ORDER BY status DESC, name").fetchall()
@@ -728,6 +785,13 @@ class Handler(BaseHTTPRequestHandler):
         if path == "/api/requests":
             return self.create_request(user)
 
+        if path == "/api/notifications/read":
+            conn = db()
+            conn.execute("UPDATE notifications SET is_read=1 WHERE user_id=?", (user["id"],))
+            conn.commit()
+            conn.close()
+            return self.send_json({"ok": True})
+
         # --- Admin/Operator amallari ---
         if path in ("/api/users", "/api/branches") or path.startswith("/api/users/") or path.startswith("/api/branches/"):
             # Qurilishni tugatib filialni faollashtirishni CEO ham tasdiqlay oladi
@@ -790,6 +854,7 @@ class Handler(BaseHTTPRequestHandler):
             "INSERT INTO events(request_id,user_id,action,comment,created_at) VALUES(?,?,?,?,?)",
             (rid, user["id"], "Zayavka ochildi", title, now()),
         )
+        notify_change(conn, rid, status, user["id"], user["id"], f"Yangi zayavka — {title}")
         conn.commit()
         conn.close()
         return self.send_json({"id": rid, "ok": True})
@@ -840,6 +905,8 @@ class Handler(BaseHTTPRequestHandler):
             "INSERT INTO events(request_id,user_id,action,comment,created_at) VALUES(?,?,?,?,?)",
             (rid, user["id"], label, comment, now()),
         )
+        act = "Yopildi" if new_status == "closed" else f"{user['full_name']} tasdiqladi → {STATUS_LABELS.get(new_status, new_status)}"
+        notify_change(conn, rid, new_status, user["id"], r["created_by"], act)
         conn.commit()
         conn.close()
         return self.send_json({"ok": True, "status": new_status})
@@ -868,6 +935,7 @@ class Handler(BaseHTTPRequestHandler):
             "INSERT INTO events(request_id,user_id,action,comment,created_at) VALUES(?,?,?,?,?)",
             (rid, user["id"], "Sanani o'zgartirishni so'radi (CEO ga)", note, now()),
         )
+        notify_change(conn, rid, "deadline_dispute", user["id"], r["created_by"], "Moliya boshqa sana so'radi — CEO hal qilsin")
         conn.commit()
         conn.close()
         return self.send_json({"ok": True, "status": "deadline_dispute"})
@@ -895,6 +963,7 @@ class Handler(BaseHTTPRequestHandler):
             "INSERT INTO events(request_id,user_id,action,comment,created_at) VALUES(?,?,?,?,?)",
             (rid, user["id"], "Muddatni yakunladi", f"📅 Yangi muddat: {new_deadline}", now()),
         )
+        notify_change(conn, rid, "pending_finance", user["id"], r["created_by"], f"CEO muddatni belgiladi: {new_deadline}")
         conn.commit()
         conn.close()
         return self.send_json({"ok": True, "status": "pending_finance"})
@@ -915,6 +984,8 @@ class Handler(BaseHTTPRequestHandler):
             "INSERT INTO events(request_id,user_id,action,comment,created_at) VALUES(?,?,?,?,?)",
             (rid, user["id"], "Rad etdi", data.get("comment", ""), now()),
         )
+        if r["created_by"] != user["id"]:
+            add_notification(conn, r["created_by"], rid, f"#{rid}: {user['full_name']} rad etdi")
         conn.commit()
         conn.close()
         return self.send_json({"ok": True, "status": "rejected"})
@@ -937,6 +1008,7 @@ class Handler(BaseHTTPRequestHandler):
             "INSERT INTO events(request_id,user_id,action,comment,created_at) VALUES(?,?,?,?,?)",
             (rid, user["id"], "Qayta imkon berdi", data.get("comment", ""), now()),
         )
+        notify_change(conn, rid, back, user["id"], r["created_by"], "Qayta imkon berildi")
         conn.commit()
         conn.close()
         return self.send_json({"ok": True, "status": back})
@@ -959,6 +1031,7 @@ class Handler(BaseHTTPRequestHandler):
             "INSERT INTO events(request_id,user_id,action,comment,created_at) VALUES(?,?,?,?,?)",
             (rid, user["id"], "HR ga yo'naltirdi (oylikdan kesish)", note, now()),
         )
+        notify_change(conn, rid, "hr_review", user["id"], r["created_by"], "HR ga yo'naltirildi (oylikdan kesish)")
         conn.commit()
         conn.close()
         return self.send_json({"ok": True, "status": "hr_review"})
@@ -1025,6 +1098,7 @@ class Handler(BaseHTTPRequestHandler):
                  float(it.get("qty", 1) or 1), float(it.get("price", 0) or 0)),
             )
         conn.execute("UPDATE requests SET status='report_submitted' WHERE id=?", (rid,))
+        notify_change(conn, rid, "report_submitted", user["id"], r["created_by"], f"Foto-hisobot topshirildi (jami {total:,.0f} so'm) — tasdiqlang")
         conn.execute(
             "INSERT INTO events(request_id,user_id,action,comment,created_at) VALUES(?,?,?,?,?)",
             (rid, user["id"], "Foto-hisobot topshirdi", f"Jami: {total:,.0f}", now()),

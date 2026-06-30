@@ -207,8 +207,16 @@ code { background: #00000040; padding: 1px 6px; border-radius: 5px; font-size: 1
 }
 
 /* Sozlamalar popover */
-.icon-btn { background: transparent; border: 1px solid var(--border); border-radius: 9px; cursor: pointer; font-size: 16px; padding: 6px 9px; color: var(--text); }
+.icon-btn { background: transparent; border: 1px solid var(--border); border-radius: 9px; cursor: pointer; font-size: 16px; padding: 6px 9px; color: var(--text); position: relative; }
 .icon-btn:hover { background: var(--panel2); }
+.icon-btn .nav-badge { position: absolute; top: -6px; right: -6px; padding: 0 5px; font-size: 10px; }
+.notif-pop { width: 340px; max-height: 70vh; overflow-y: auto; }
+.notif-list { display: flex; flex-direction: column; gap: 6px; }
+.notif-item { background: var(--panel2); border: 1px solid var(--border); border-radius: 9px; padding: 9px 11px; cursor: pointer; }
+.notif-item:hover { border-color: var(--primary); }
+.notif-item.unread { border-left: 3px solid var(--primary); }
+.ni-text { font-size: 13px; font-weight: 600; }
+.ni-at { font-size: 11px; color: var(--muted); margin-top: 2px; }
 .settings-pop {
     position: fixed; top: 64px; right: 20px; z-index: 80; width: 280px;
     background: var(--panel); border: 1px solid var(--border); border-radius: 14px;

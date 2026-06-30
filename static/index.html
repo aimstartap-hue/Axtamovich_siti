@@ -44,12 +44,19 @@
             </button>
             <div class="brand">AXO<span>·</span>OPEN group</div>
             <div class="user-box">
+                <button id="notif-toggle" class="icon-btn" title="Bildirishnomalar">🔔<span id="notif-badge" class="nav-badge hidden">0</span></button>
                 <button id="settings-toggle" class="icon-btn" title="Sozlamalar">⚙️</button>
                 <span id="user-name"></span>
                 <span id="user-role" class="badge"></span>
                 <button id="logout-btn" class="btn btn-ghost" data-i18n="logout">Chiqish</button>
             </div>
         </header>
+
+        <!-- Bildirishnomalar paneli -->
+        <div id="notif-pop" class="settings-pop notif-pop hidden">
+            <div class="sp-title">🔔 Bildirishnomalar <button class="link-btn" id="notif-readall" style="float:right">Hammasini o'qildi</button></div>
+            <div id="notif-list" class="notif-list"></div>
+        </div>
 
         <!-- Shaxsiy sozlamalar popover -->
         <div id="settings-pop" class="settings-pop hidden">
