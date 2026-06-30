@@ -161,7 +161,7 @@ code { background: #00000040; padding: 1px 6px; border-radius: 5px; font-size: 1
 .items-table th { color: var(--muted); font-weight: 600; }
 .total-line { font-weight: 700; font-size: 15px; margin-top: 10px; text-align: right; }
 
-.item-row { display: grid; grid-template-columns: 130px 1.6fr 60px 100px 24px; gap: 8px; margin-bottom: 8px; align-items: center; }
+.item-row { display: grid; grid-template-columns: 115px 1.3fr 110px 48px 88px 20px; gap: 6px; margin-bottom: 8px; align-items: center; }
 .item-row input, .item-row select { padding: 8px; }
 .item-head { font-size: 11px; color: var(--muted); font-weight: 600; margin-bottom: 4px; }
 .item-head span { padding: 0 2px; }

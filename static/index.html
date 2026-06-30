@@ -95,6 +95,8 @@
                 <button class="menu-item" data-view="stats" data-i18n="reports">📈 Hisobot va analitika</button>
                 <button class="menu-item hidden" id="menu-budget" data-view="budget">💰 Byudjetlar</button>
                 <button class="menu-item hidden" id="menu-assets" data-view="assets">🧰 Aktivlar / Jihozlar</button>
+                <button class="menu-item hidden" id="menu-recurring" data-view="recurring">🔁 Profilaktik ishlar</button>
+                <button class="menu-item hidden" id="menu-suppliers" data-view="suppliers">🚚 Yetkazib beruvchilar</button>
                 <button class="menu-item hidden" id="menu-admin" data-view="admin" data-i18n="settings">⚙️ Sozlamalar</button>
             </nav>
             <div class="drawer-foot">
@@ -145,6 +147,18 @@
             <section id="view-assets" class="view hidden">
                 <div class="toolbar"><h2>🧰 Aktivlar / Jihozlar</h2></div>
                 <div id="assets-content"></div>
+            </section>
+
+            <!-- VIEW: Profilaktika -->
+            <section id="view-recurring" class="view hidden">
+                <div class="toolbar"><h2>🔁 Profilaktik (takrorlanuvchi) ishlar</h2></div>
+                <div id="recurring-content"></div>
+            </section>
+
+            <!-- VIEW: Yetkazib beruvchilar -->
+            <section id="view-suppliers" class="view hidden">
+                <div class="toolbar"><h2>🚚 Yetkazib beruvchilar</h2></div>
+                <div id="suppliers-content"></div>
             </section>
 
             <!-- VIEW: Admin -->

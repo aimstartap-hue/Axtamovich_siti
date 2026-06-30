@@ -14,7 +14,7 @@ import hashlib
 import secrets
 import base64
 import mimetypes
-from datetime import datetime
+from datetime import datetime, timedelta
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from http.cookies import SimpleCookie
 from urllib.parse import urlparse
@@ -239,6 +239,25 @@ def init_db():
             note TEXT,
             created_at TEXT NOT NULL
         );
+        CREATE TABLE IF NOT EXISTS recurring_tasks (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            title TEXT NOT NULL,
+            description TEXT,
+            branch_id INTEGER REFERENCES branches(id),
+            category TEXT,
+            interval_days INTEGER NOT NULL DEFAULT 30,
+            next_date TEXT NOT NULL,
+            active INTEGER DEFAULT 1,
+            created_by INTEGER REFERENCES users(id),
+            created_at TEXT NOT NULL
+        );
+        CREATE TABLE IF NOT EXISTS suppliers (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            name TEXT NOT NULL UNIQUE,
+            phone TEXT,
+            note TEXT,
+            created_at TEXT NOT NULL
+        );
         """
     )
     conn.commit()
@@ -255,7 +274,9 @@ def init_db():
     add_col("requests", "suggested_deadline", "TEXT")
     add_col("requests", "deadline_disputed", "INTEGER DEFAULT 0")
     add_col("requests", "limit_amount", "REAL")
+    add_col("requests", "escalated", "INTEGER DEFAULT 0")
     add_col("report_items", "category", "TEXT")
+    add_col("report_items", "supplier", "TEXT")
     add_col("branches", "status", "TEXT DEFAULT 'active'")
     conn.commit()
 
@@ -422,6 +443,63 @@ def add_notification(conn, user_id, request_id, text):
     )
 
 
+def process_due(conn):
+    """Har bir zayavkalar so'rovida ishlaydi: profilaktik ishlardan zayavka yaratadi
+    va muddati o'tgan zayavkalarni eskalatsiya qiladi. Idempotent."""
+    today = datetime.now().strftime("%Y-%m-%d")
+    # 1) Profilaktik (takrorlanuvchi) ishlar
+    due = conn.execute(
+        "SELECT * FROM recurring_tasks WHERE active=1 AND next_date<=?", (today,)
+    ).fetchall()
+    for rt in due:
+        cur = conn.execute(
+            "INSERT INTO requests(type,title,description,photo,branch_id,created_by,status,created_at) "
+            "VALUES('maintenance',?,?,?,?,?,?,?)",
+            (f"[Profilaktika] {rt['title']}", rt["description"] or "", None, rt["branch_id"],
+             rt["created_by"], "pending_axo", now()),
+        )
+        rid = cur.lastrowid
+        conn.execute(
+            "INSERT INTO events(request_id,user_id,action,comment,created_at) VALUES(?,?,?,?,?)",
+            (rid, rt["created_by"], "Profilaktik ish avtomatik yaratildi", rt["title"], now()),
+        )
+        notify_change(conn, rid, "pending_axo", None, rt["created_by"], f"Profilaktik ish: {rt['title']}")
+        # keyingi sanani surish
+        try:
+            base = datetime.strptime(rt["next_date"], "%Y-%m-%d")
+        except ValueError:
+            base = datetime.now()
+        nxt = base + timedelta(days=int(rt["interval_days"] or 30))
+        # o'tib ketgan bo'lsa bugundan keyingi sanaga
+        while nxt.strftime("%Y-%m-%d") <= today:
+            nxt += timedelta(days=int(rt["interval_days"] or 30))
+        conn.execute("UPDATE recurring_tasks SET next_date=? WHERE id=?", (nxt.strftime("%Y-%m-%d"), rt["id"]))
+
+    # 2) Muddati o'tgan zayavkalar eskalatsiyasi (bir marta)
+    overdue = conn.execute(
+        "SELECT * FROM requests WHERE deadline IS NOT NULL AND deadline<? "
+        "AND status NOT IN ('closed','rejected') AND COALESCE(escalated,0)=0", (today,)
+    ).fetchall()
+    for r in overdue:
+        conn.execute("UPDATE requests SET escalated=1 WHERE id=?", (r["id"],))
+        conn.execute(
+            "INSERT INTO events(request_id,user_id,action,comment,created_at) VALUES(?,?,?,?,?)",
+            (r["id"], None, "⚠️ Muddat o'tdi — eskalatsiya", f"Muddat: {r['deadline']}", now()),
+        )
+        # CEO + joriy mas'ul rol + egasiga xabar
+        recipients = set()
+        for u in conn.execute("SELECT id FROM users WHERE role='ceo'").fetchall():
+            recipients.add(u["id"])
+        for role in NOTIFY_ROLES.get(r["status"], []):
+            for u in conn.execute("SELECT id FROM users WHERE role=?", (role,)).fetchall():
+                recipients.add(u["id"])
+        if r["created_by"]:
+            recipients.add(r["created_by"])
+        for uid in recipients:
+            add_notification(conn, uid, r["id"], f"⚠️ #{r['id']}: muddat o'tib ketdi ({r['deadline']}) — {r['title']}")
+    conn.commit()
+
+
 def notify_change(conn, rid, new_status, actor_id, creator_id, action_text):
     """Status o'zgargach: keyingi mas'ul rollarga + zayavka egasiga bildirishnoma."""
     recipients = set()
@@ -523,6 +601,7 @@ def request_to_dict(conn, r, full=False):
         "limit_amount": r["limit_amount"],
         "overdue": bool(r["deadline"] and r["status"] not in ("closed", "rejected")
                         and r["deadline"] < datetime.now().strftime("%Y-%m-%d")),
+        "escalated": bool(r["escalated"]),
         "created_at": r["created_at"],
     }
     if full:
@@ -551,7 +630,7 @@ def request_to_dict(conn, r, full=False):
                 "photos": json.loads(rep["photos_json"] or "[]"),
                 "by": submitter["full_name"] if submitter else "?",
                 "at": rep["created_at"],
-                "items": [{"name": i["name"], "category": i["category"] or "", "qty": i["qty"], "price": i["price"]} for i in items],
+                "items": [{"name": i["name"], "category": i["category"] or "", "supplier": i["supplier"] or "", "qty": i["qty"], "price": i["price"]} for i in items],
             })
         comments = conn.execute(
             "SELECT c.*, u.full_name, u.role FROM comments c LEFT JOIN users u ON u.id=c.user_id "
@@ -663,10 +742,14 @@ class Handler(BaseHTTPRequestHandler):
             return self.send_json({"error": "Avtorizatsiya kerak"}, 401)
 
         if path == "/api/meta":
+            conn = db()
+            sups = [s["name"] for s in conn.execute("SELECT name FROM suppliers ORDER BY name").fetchall()]
+            conn.close()
             return self.send_json({
                 "categories": EXPENSE_CATEGORIES,
                 "groups": EXPENSE_GROUPS,
                 "type_groups": TYPE_GROUPS,
+                "suppliers": sups,
             })
 
         if path == "/api/export/requests.csv":
@@ -726,6 +809,40 @@ class Handler(BaseHTTPRequestHandler):
                 "can_edit": user["role"] in ("finance", "admin", "oper"),
             })
 
+        if path == "/api/recurring":
+            conn = db()
+            process_due(conn)
+            rows = conn.execute("SELECT * FROM recurring_tasks ORDER BY active DESC, next_date").fetchall()
+            out = []
+            for rt in rows:
+                br = conn.execute("SELECT name FROM branches WHERE id=?", (rt["branch_id"],)).fetchone() if rt["branch_id"] else None
+                out.append({"id": rt["id"], "title": rt["title"], "description": rt["description"] or "",
+                            "branch": br["name"] if br else "", "branch_id": rt["branch_id"],
+                            "category": rt["category"] or "", "interval_days": rt["interval_days"],
+                            "next_date": rt["next_date"], "active": bool(rt["active"])})
+            conn.close()
+            return self.send_json({"tasks": out, "can_edit": user["role"] in ("admin", "oper", "axo", "ceo")})
+
+        if path == "/api/suppliers":
+            conn = db()
+            rows = conn.execute("SELECT * FROM suppliers ORDER BY name").fetchall()
+            out = []
+            for s in rows:
+                # narx tarixi: shu yetkazib beruvchidan olingan tovarlar
+                hist = conn.execute(
+                    "SELECT ri.name, ri.price, ri.qty, rp.created_at FROM report_items ri "
+                    "JOIN reports rp ON rp.id=ri.report_id WHERE ri.supplier=? ORDER BY rp.created_at DESC LIMIT 30",
+                    (s["name"],)
+                ).fetchall()
+                total = conn.execute(
+                    "SELECT COALESCE(SUM(qty*price),0) AS t FROM report_items WHERE supplier=?", (s["name"],)
+                ).fetchone()["t"] or 0
+                out.append({"id": s["id"], "name": s["name"], "phone": s["phone"] or "", "note": s["note"] or "",
+                            "total": total,
+                            "history": [{"name": h["name"], "price": h["price"], "qty": h["qty"], "at": h["created_at"]} for h in hist]})
+            conn.close()
+            return self.send_json({"suppliers": out, "can_edit": user["role"] in ("admin", "oper", "axo")})
+
         if path == "/api/assets":
             conn = db()
             allowed = user["branch_id"] if user["role"] == "branch_manager" else None
@@ -764,6 +881,7 @@ class Handler(BaseHTTPRequestHandler):
             return self.send_json([{"id": r["id"], "name": r["name"], "status": r["status"]} for r in rows])
 
         if path == "/api/requests":
+            process_due(conn)   # profilaktika + eskalatsiya
             rows = conn.execute("SELECT * FROM requests ORDER BY id DESC").fetchall()
             out = []
             for r in rows:
@@ -934,6 +1052,12 @@ class Handler(BaseHTTPRequestHandler):
 
         if path == "/api/assets" or (path.startswith("/api/assets/") and path.endswith("/delete")):
             return self.handle_assets_post(user, path)
+
+        if path == "/api/recurring" or (path.startswith("/api/recurring/") and path.endswith("/delete")):
+            return self.handle_recurring_post(user, path)
+
+        if path == "/api/suppliers" or (path.startswith("/api/suppliers/") and path.endswith("/delete")):
+            return self.handle_suppliers_post(user, path)
 
         # --- Admin/Operator amallari ---
         if path in ("/api/users", "/api/branches") or path.startswith("/api/users/") or path.startswith("/api/branches/"):
@@ -1238,8 +1362,8 @@ class Handler(BaseHTTPRequestHandler):
             if not name:
                 continue
             conn.execute(
-                "INSERT INTO report_items(report_id,name,category,qty,price) VALUES(?,?,?,?,?)",
-                (report_id, name, (it.get("category") or "").strip(),
+                "INSERT INTO report_items(report_id,name,category,supplier,qty,price) VALUES(?,?,?,?,?,?)",
+                (report_id, name, (it.get("category") or "").strip(), (it.get("supplier") or "").strip(),
                  float(it.get("qty", 1) or 1), float(it.get("price", 0) or 0)),
             )
         conn.execute("UPDATE requests SET status='report_submitted' WHERE id=?", (rid,))
@@ -1287,6 +1411,66 @@ class Handler(BaseHTTPRequestHandler):
         conn.commit()
         conn.close()
         return self.send_json({"ok": True})
+
+    def handle_recurring_post(self, user, path):
+        if user["role"] not in ("admin", "oper", "axo", "ceo"):
+            return self.send_json({"error": "Ruxsat yo'q"}, 403)
+        conn = db()
+        try:
+            if path.endswith("/delete"):
+                tid = int(path.split("/")[3])
+                conn.execute("DELETE FROM recurring_tasks WHERE id=?", (tid,))
+                conn.commit()
+                return self.send_json({"ok": True})
+            data = self.read_json()
+            title = (data.get("title") or "").strip()
+            if not title:
+                return self.send_json({"error": "Sarlavha kiritilmadi"}, 400)
+            try:
+                interval = int(data.get("interval_days") or 30)
+            except (TypeError, ValueError):
+                interval = 30
+            next_date = (data.get("next_date") or "").strip() or datetime.now().strftime("%Y-%m-%d")
+            bid = data.get("branch_id")
+            try:
+                bid = int(bid)
+            except (TypeError, ValueError):
+                bid = None
+            conn.execute(
+                "INSERT INTO recurring_tasks(title,description,branch_id,category,interval_days,next_date,active,created_by,created_at) "
+                "VALUES(?,?,?,?,?,?,1,?,?)",
+                (title, (data.get("description") or "").strip(), bid, (data.get("category") or "").strip(),
+                 interval, next_date, user["id"], now()),
+            )
+            conn.commit()
+            return self.send_json({"ok": True})
+        finally:
+            conn.close()
+
+    def handle_suppliers_post(self, user, path):
+        if user["role"] not in ("admin", "oper", "axo"):
+            return self.send_json({"error": "Ruxsat yo'q"}, 403)
+        conn = db()
+        try:
+            if path.endswith("/delete"):
+                sid = int(path.split("/")[3])
+                conn.execute("DELETE FROM suppliers WHERE id=?", (sid,))
+                conn.commit()
+                return self.send_json({"ok": True})
+            data = self.read_json()
+            name = (data.get("name") or "").strip()
+            if not name:
+                return self.send_json({"error": "Nom kiritilmadi"}, 400)
+            if conn.execute("SELECT 1 FROM suppliers WHERE name=?", (name,)).fetchone():
+                return self.send_json({"error": "Bu yetkazib beruvchi bor"}, 400)
+            conn.execute(
+                "INSERT INTO suppliers(name,phone,note,created_at) VALUES(?,?,?,?)",
+                (name, (data.get("phone") or "").strip(), (data.get("note") or "").strip(), now()),
+            )
+            conn.commit()
+            return self.send_json({"ok": True})
+        finally:
+            conn.close()
 
     def handle_assets_post(self, user, path):
         if user["role"] not in ("admin", "oper", "axo"):

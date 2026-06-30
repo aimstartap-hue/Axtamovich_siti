@@ -6,6 +6,7 @@ let CURRENT_VIEW = "requests";
 let CATEGORIES = [];
 let META_GROUPS = {};
 let META_TYPE_GROUPS = {};
+let META_SUPPLIERS = [];
 let REPORT_TYPE = "maintenance";
 
 // ======================= SOZLAMALAR (til / mavzu / rang) =======================
@@ -112,6 +113,8 @@ async function showApp() {
     $("#menu-admin").classList.toggle("hidden", !isAdmin);
     $("#menu-budget").classList.toggle("hidden", !["finance", "ceo", "admin", "oper"].includes(ME.role));
     $("#menu-assets").classList.toggle("hidden", ME.role === "oper");
+    $("#menu-recurring").classList.toggle("hidden", !["axo", "ceo", "admin", "oper"].includes(ME.role));
+    $("#menu-suppliers").classList.toggle("hidden", !["axo", "finance", "ceo", "admin", "oper"].includes(ME.role));
     $("#bn-add").classList.toggle("hidden", !(ME.role === "branch_manager" || ME.role === "open_group" || ME.role === "admin"));
     applySettings();
     // rasxod turlari (bo'limlar bilan)
@@ -119,6 +122,7 @@ async function showApp() {
     CATEGORIES = (meta && meta.categories) || [];
     META_GROUPS = (meta && meta.groups) || {};
     META_TYPE_GROUPS = (meta && meta.type_groups) || {};
+    META_SUPPLIERS = (meta && meta.suppliers) || [];
     // Operator to'g'ridan-to'g'ri sozlamalarga, qolganlar Boshqaruv paneliga
     if (ME.role === "oper") switchView("admin");
     else switchView("dashboard");
@@ -152,6 +156,8 @@ function switchView(view, type) {
     if (view === "dashboard") loadDashboard();
     if (view === "budget") loadBudget();
     if (view === "assets") loadAssets();
+    if (view === "recurring") loadRecurring();
+    if (view === "suppliers") loadSuppliers();
     closeDrawer();
 }
 function openDrawer() { $("#drawer").classList.remove("hidden"); $("#drawer-overlay").classList.remove("hidden"); }
@@ -281,11 +287,12 @@ async function loadRequests() {
 function cardHtml(r) {
     const typeLabel = r.type === "new_branch" ? "Yangi filial" : "Texnik zayavka";
     const actionTag = r.needs_my_action ? `<span class="action-tag">⚡ Siz harakat qiling</span>` : "";
+    const escTag = r.escalated ? `<span class="action-tag" style="color:var(--red)">⚠️ Eskalatsiya</span>` : "";
     return `
     <div class="card ${r.needs_my_action ? "card-action" : ""}" data-id="${r.id}">
         <div class="card-head">
             <div>
-                <span class="type-tag type-${r.type}">${typeLabel}</span> ${actionTag}
+                <span class="type-tag type-${r.type}">${typeLabel}</span> ${actionTag} ${escTag}
                 <div class="card-title">${esc(r.title)}</div>
                 <div class="card-meta">
                     <span>#${r.id}</span>
@@ -345,8 +352,8 @@ async function openDetail(id) {
             ${rep.note ? `<p style="margin:8px 0">${esc(rep.note)}</p>` : ""}
             ${rep.items.length ? `
             <table class="items-table">
-                <tr><th>Rasxod turi</th><th>Nomi</th><th>Soni</th><th>Narxi</th><th>Jami</th></tr>
-                ${rep.items.map((i) => `<tr><td>${esc(i.category || "—")}</td><td>${esc(i.name)}</td><td>${i.qty}</td><td>${fmtMoney(i.price)}</td><td>${fmtMoney(i.qty * i.price)}</td></tr>`).join("")}
+                <tr><th>Rasxod turi</th><th>Nomi</th><th>Yetkazib beruvchi</th><th>Soni</th><th>Narxi</th><th>Jami</th></tr>
+                ${rep.items.map((i) => `<tr><td>${esc(i.category || "—")}</td><td>${esc(i.name)}</td><td>${esc(i.supplier || "—")}</td><td>${i.qty}</td><td>${fmtMoney(i.price)}</td><td>${fmtMoney(i.qty * i.price)}</td></tr>`).join("")}
             </table>` : ""}
             <div class="total-line">Jami: ${fmtMoney(rep.total)}</div>
             ${rep.photos.length ? `<div class="photo-grid" style="margin-top:10px">${rep.photos.map((p) => `<img src="${p}" onclick="window.open('${p}')">`).join("")}</div>` : ""}
@@ -542,7 +549,7 @@ function openReportForm(id, type) {
         <div class="field">
             <label>Nima olindi va qancha sarflandi?</label>
             <p class="muted" style="margin:-2px 0 8px">Har bir xarid uchun: rasxod turi, nomi, soni va narxini yozing.</p>
-            <div class="item-row item-head"><span>Rasxod turi</span><span>Nomi</span><span>Soni</span><span>Narxi (so'm)</span><span></span></div>
+            <div class="item-row item-head"><span>Rasxod turi</span><span>Nomi</span><span>Yetkazib beruvchi</span><span>Soni</span><span>Narxi</span><span></span></div>
             <div id="items-container"></div>
             <button class="link-btn" onclick="addItemRow()">+ Yana qo'shish</button>
         </div>
@@ -557,9 +564,11 @@ function openReportForm(id, type) {
 function addItemRow() {
     const div = document.createElement("div");
     div.className = "item-row";
+    const supOpts = `<option value="">—</option>` + (META_SUPPLIERS || []).map((s) => `<option value="${esc(s)}">${esc(s)}</option>`).join("");
     div.innerHTML = `
         <select class="it-cat">${categoryOptionsHtml()}</select>
         <input placeholder="Masalan: Qizdirgich" class="it-name" autocomplete="off">
+        <select class="it-sup" title="Yetkazib beruvchi">${supOpts}</select>
         <input type="number" placeholder="1" class="it-qty" value="1" min="0">
         <input type="number" placeholder="0" class="it-price" min="0">
         <button class="link-btn" onclick="this.parentElement.remove()">✕</button>`;
@@ -569,6 +578,7 @@ async function submitReport(id) {
     const items = [...document.querySelectorAll("#items-container .item-row")].map((row) => ({
         category: row.querySelector(".it-cat").value,
         name: row.querySelector(".it-name").value.trim(),
+        supplier: row.querySelector(".it-sup") ? row.querySelector(".it-sup").value : "",
         qty: parseFloat(row.querySelector(".it-qty").value) || 0,
         price: parseFloat(row.querySelector(".it-price").value) || 0,
     })).filter((i) => i.name);
@@ -831,6 +841,101 @@ async function deleteAsset(id) {
     else alert((data && data.error) || "Xatolik");
 }
 
+// ---------------- PROFILAKTIKA (takrorlanuvchi) ----------------
+async function loadRecurring() {
+    const [{ data }, { data: branches }] = await Promise.all([api("/api/recurring"), api("/api/branches")]);
+    if (!data || data.error) { $("#recurring-content").innerHTML = `<p class="muted">Ruxsat yo'q.</p>`; return; }
+    const rows = data.tasks.map((t) => `
+        <tr>
+            <td>${esc(t.title)}</td><td>${esc(t.branch)}</td><td>${esc(t.category)}</td>
+            <td>har ${t.interval_days} kun</td><td>${esc(t.next_date)}</td>
+            <td>${data.can_edit ? `<button class="link-btn" style="color:var(--red)" onclick="deleteRecurring(${t.id})">O'chirish</button>` : ""}</td>
+        </tr>`).join("");
+    $("#recurring-content").innerHTML = `
+        <p class="muted" style="margin-bottom:12px">Belgilangan kun kelganda tizim avtomatik texnik zayavka ochadi (masalan: har oy ventilyatsiya tozalash).</p>
+        ${data.can_edit ? `<div class="export-row"><button class="btn btn-primary btn-sm" onclick='openRecurringForm(${JSON.stringify(branches || [])})'>+ Profilaktik ish</button></div>` : ""}
+        <div class="table-wrap"><table class="items-table">
+            <tr><th>Ish</th><th>Filial</th><th>Turi</th><th>Davriylik</th><th>Keyingi sana</th><th></th></tr>
+            ${rows || `<tr><td colspan="6" class="muted">Hozircha yo'q.</td></tr>`}
+        </table></div>`;
+}
+function openRecurringForm(branches) {
+    const opts = (branches || []).map((b) => `<option value="${b.id}">${esc(b.name)}</option>`).join("");
+    const today = new Date().toISOString().slice(0, 10);
+    showModal(`
+        <button class="modal-close" onclick="closeModal()">&times;</button>
+        <h3>Yangi profilaktik ish</h3>
+        <div class="field"><label>Ish nomi</label><input id="rc-title" autocomplete="off" placeholder="Masalan: Ventilyatsiya filtrini tozalash"></div>
+        <div class="field"><label>Izoh</label><input id="rc-desc" autocomplete="off"></div>
+        <div class="field"><label>Filial</label><select id="rc-branch"><option value="">—</option>${opts}</select></div>
+        <div class="field"><label>Davriylik (kun)</label><input type="number" id="rc-interval" value="30" min="1"></div>
+        <div class="field"><label>Birinchi sana</label><input type="date" id="rc-next" value="${today}"></div>
+        <div class="modal-actions">
+            <button class="btn btn-ghost" onclick="closeModal()">Bekor</button>
+            <button class="btn btn-primary" onclick="saveRecurring()">💾 Saqlash</button>
+        </div>`);
+}
+async function saveRecurring() {
+    const title = $("#rc-title").value.trim();
+    if (!title) { alert("Ish nomini kiriting"); return; }
+    const body = { title, description: $("#rc-desc").value, interval_days: parseInt($("#rc-interval").value) || 30, next_date: $("#rc-next").value };
+    const bv = $("#rc-branch").value; if (bv) body.branch_id = parseInt(bv);
+    const { ok, data } = await api("/api/recurring", "POST", body);
+    if (ok) { closeModal(); loadRecurring(); }
+    else alert((data && data.error) || "Xatolik");
+}
+async function deleteRecurring(id) {
+    if (!confirm("O'chirilsinmi?")) return;
+    const { ok } = await api(`/api/recurring/${id}/delete`, "POST", {});
+    if (ok) loadRecurring();
+}
+
+// ---------------- YETKAZIB BERUVCHILAR ----------------
+async function loadSuppliers() {
+    const { data } = await api("/api/suppliers");
+    if (!data || data.error) { $("#suppliers-content").innerHTML = `<p class="muted">Ruxsat yo'q.</p>`; return; }
+    const cards = data.suppliers.map((s) => `
+        <div class="settings-panel">
+            <div class="admin-head">
+                <div><b style="font-size:16px">${esc(s.name)}</b> ${s.phone ? `<span class="muted">· 📞 ${esc(s.phone)}</span>` : ""}</div>
+                <div>Jami: <b>${fmtMoney(s.total)}</b>${data.can_edit ? ` <button class="link-btn" style="color:var(--red)" onclick="deleteSupplier(${s.id})">✕</button>` : ""}</div>
+            </div>
+            ${s.note ? `<p class="muted">${esc(s.note)}</p>` : ""}
+            ${s.history.length ? `<table class="items-table" style="margin-top:8px">
+                <tr><th>Tovar</th><th>Soni</th><th>Narxi</th><th>Sana</th></tr>
+                ${s.history.map((h) => `<tr><td>${esc(h.name)}</td><td>${h.qty}</td><td>${fmtMoney(h.price)}</td><td>${esc(h.at)}</td></tr>`).join("")}
+            </table>` : `<p class="muted">Narx tarixi yo'q (hisobotlarda bu yetkazib beruvchi tanlanmagan).</p>`}
+        </div>`).join("");
+    $("#suppliers-content").innerHTML = `
+        <p class="muted" style="margin-bottom:12px">AXO foto-hisobotda tovar yonida yetkazib beruvchini tanlasa, narx tarixi shu yerda yig'iladi.</p>
+        ${data.can_edit ? `<div class="export-row"><button class="btn btn-primary btn-sm" onclick="openSupplierForm()">+ Yetkazib beruvchi</button></div>` : ""}
+        <div class="settings-grid">${cards || `<p class="muted">${t("no_data")}</p>`}</div>`;
+}
+function openSupplierForm() {
+    showModal(`
+        <button class="modal-close" onclick="closeModal()">&times;</button>
+        <h3>Yangi yetkazib beruvchi</h3>
+        <div class="field"><label>Nomi</label><input id="sp-name" autocomplete="off" placeholder="Masalan: Metan-Servis MChJ"></div>
+        <div class="field"><label>Telefon</label><input id="sp-phone" autocomplete="off"></div>
+        <div class="field"><label>Izoh</label><input id="sp-note" autocomplete="off"></div>
+        <div class="modal-actions">
+            <button class="btn btn-ghost" onclick="closeModal()">Bekor</button>
+            <button class="btn btn-primary" onclick="saveSupplier()">💾 Saqlash</button>
+        </div>`);
+}
+async function saveSupplier() {
+    const name = $("#sp-name").value.trim();
+    if (!name) { alert("Nom kiriting"); return; }
+    const { ok, data } = await api("/api/suppliers", "POST", { name, phone: $("#sp-phone").value, note: $("#sp-note").value });
+    if (ok) { closeModal(); loadSuppliers(); META_SUPPLIERS = null; }
+    else alert((data && data.error) || "Xatolik");
+}
+async function deleteSupplier(id) {
+    if (!confirm("O'chirilsinmi?")) return;
+    const { ok } = await api(`/api/suppliers/${id}/delete`, "POST", {});
+    if (ok) loadSuppliers();
+}
+
 // ---------------- ADMIN ----------------
 let ROLE_MAP = {};
 async function loadAdmin() {
@@ -992,7 +1097,7 @@ function buildRequestText(r) {
         L.push("FOTO-HISOBOT #" + (idx + 1) + " — " + rep.by + " (" + rep.at + ")");
         if (rep.note) L.push("  " + rep.note);
         rep.items.forEach((i) => {
-            L.push("  • [" + (i.category || "—") + "] " + i.name + " — " + i.qty + " x " + fmtMoney(i.price) + " = " + fmtMoney(i.qty * i.price));
+            L.push("  • [" + (i.category || "—") + "] " + i.name + (i.supplier ? " (" + i.supplier + ")" : "") + " — " + i.qty + " x " + fmtMoney(i.price) + " = " + fmtMoney(i.qty * i.price));
         });
         L.push("  JAMI: " + fmtMoney(rep.total));
     });
