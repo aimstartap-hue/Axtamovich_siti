@@ -10,6 +10,20 @@ Filiallardan kelgan zayavkalar, tasdiqlash zanjiri, AXO bajarishi va foto-hisobo
 
 > Hech narsa o'rnatish shart emas — faqat Python kerak (sizda 3.14 bor).
 
+## 📱 Telefonga o'rnatish (PWA)
+Telefon brauzerida saytni oching → menyudan **"Ekranga qo'shish / Установить приложение"** ni tanlang.
+Ilova alohida belgi bilan o'rnatiladi, kameradan rasm oladi va internetsiz ham asosiy ekran ishlaydi.
+
+## Asosiy imkoniyatlar
+- **PWA** — telefon/kompyuterga moslashuvchan, o'rnatiladigan ilova (telefonda pastki menyu).
+- **Bildirishnomalar** (🔔) — status o'zgarganda kerakli rolga xabar, o'qilmaganlar soni.
+- **Izoh/chat** har zayavka ichida.
+- **Qidiruv** va **Excel (CSV) / PDF eksport**.
+- **Filial oylik byudjeti** — sarflandi/qoldiq nazorati, limitdan oshsa ogohlantirish.
+- **Aktivlar/Jihozlar reestri** — kafolat muddati ogohlantirishi bilan.
+- **Til** (O'zbek/Русский), **mavzu** (Qora/Oq), **rang** sozlamalari.
+- **Chop etish** — zayavkani bloknot (matn) ko'rinishida.
+
 ## Sinov uchun loginlar
 
 | Login | Parol | Rol |
@@ -17,6 +31,8 @@ Filiallardan kelgan zayavkalar, tasdiqlash zanjiri, AXO bajarishi va foto-hisobo
 | `admin` | `admin123` | Administrator |
 | `oper` | `oper123` | Operator — filial qo'shish va barcha sozlamalar |
 | `manager1` | `123` | Filial menejeri (Chilonzor) |
+| `regmen1` | `123` | Regional menejer (barcha filiallar) |
+| `hr1` | `123` | HR (kadrlar) |
 | `ceo1` | `123` | CEO |
 | `finance1` | `123` | Moliya |
 | `ops1` | `123` | Operatsion direktor |
