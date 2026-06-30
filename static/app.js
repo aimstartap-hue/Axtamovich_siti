@@ -110,6 +110,7 @@ async function showApp() {
     $("#new-maintenance-btn").classList.toggle("hidden", !(ME.role === "branch_manager" || ME.role === "admin"));
     $("#new-branch-btn").classList.toggle("hidden", !(ME.role === "open_group" || ME.role === "admin"));
     $("#menu-admin").classList.toggle("hidden", !isAdmin);
+    $("#bn-add").classList.toggle("hidden", !(ME.role === "branch_manager" || ME.role === "open_group" || ME.role === "admin"));
     applySettings();
     // rasxod turlari (bo'limlar bilan)
     const { data: meta } = await api("/api/meta");
@@ -127,6 +128,8 @@ function switchView(view, type) {
     if (type !== undefined) { TYPE_FILTER = type; CURRENT_FILTER = "all"; }
     document.querySelectorAll(".menu-item").forEach((b) =>
         b.classList.toggle("active", b.dataset.view === view && (b.dataset.type || "") === (b.dataset.view === "requests" ? TYPE_FILTER : "")));
+    document.querySelectorAll("#bottom-nav .bn-item[data-view]").forEach((b) =>
+        b.classList.toggle("active", b.dataset.view === view));
     document.querySelectorAll(".view").forEach((v) => v.classList.add("hidden"));
     $("#view-" + view).classList.remove("hidden");
     // sarlavha
@@ -842,6 +845,37 @@ function showModal(html) {
 }
 function closeModal() { $("#modal-root").innerHTML = ""; }
 function esc(s) { return String(s == null ? "" : s).replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c])); }
+
+// ---------------- PWA: service worker + o'rnatish ----------------
+if ("serviceWorker" in navigator) {
+    window.addEventListener("load", () => {
+        navigator.serviceWorker.register("/sw.js").catch(() => {});
+    });
+}
+let deferredInstall = null;
+window.addEventListener("beforeinstallprompt", (e) => {
+    e.preventDefault();
+    deferredInstall = e;
+    $("#install-btn").classList.remove("hidden");
+});
+$("#install-btn").onclick = async () => {
+    if (!deferredInstall) return;
+    deferredInstall.prompt();
+    await deferredInstall.userChoice;
+    deferredInstall = null;
+    $("#install-btn").classList.add("hidden");
+};
+window.addEventListener("appinstalled", () => { $("#install-btn").classList.add("hidden"); });
+
+// ---------------- Pastki menyu (mobil) ----------------
+$("#bn-menu").onclick = openDrawer;
+$("#bn-add").onclick = () => {
+    if (ME && (ME.role === "branch_manager" || ME.role === "admin")) openNewForm("maintenance");
+    else if (ME && ME.role === "open_group") openNewForm("new_branch");
+};
+document.querySelectorAll("#bottom-nav .bn-item[data-view]").forEach((b) => {
+    b.onclick = () => switchView(b.dataset.view, b.dataset.view === "requests" ? (b.dataset.type || "all") : undefined);
+});
 
 // init
 buildSwatches();

@@ -543,6 +543,11 @@ class Handler(BaseHTTPRequestHandler):
         path = parsed.path
         if path == "/" or path == "/index.html":
             return self.serve_file(os.path.join(STATIC_DIR, "index.html"), "text/html; charset=utf-8")
+        if path == "/manifest.json":
+            return self.serve_file(os.path.join(STATIC_DIR, "manifest.json"), "application/manifest+json; charset=utf-8")
+        if path == "/sw.js":
+            # Service worker ildiz scope'da bo'lishi kerak (butun saytni boshqaradi)
+            return self.serve_file(os.path.join(STATIC_DIR, "sw.js"), "application/javascript; charset=utf-8")
         if path.startswith("/static/"):
             return self.serve_file(os.path.join(STATIC_DIR, os.path.basename(path)))
         if path.startswith("/uploads/"):

@@ -2,9 +2,16 @@
 <html lang="uz">
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
     <title>AXO-OPEN group</title>
     <link rel="stylesheet" href="/static/style.css">
+    <link rel="manifest" href="/manifest.json">
+    <meta name="theme-color" content="#0f1117">
+    <meta name="mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+    <link rel="apple-touch-icon" href="/static/icon.svg">
+    <link rel="icon" href="/static/icon.svg" type="image/svg+xml">
 </head>
 <body>
     <!-- LOGIN -->
@@ -126,8 +133,21 @@
         </main>
     </div>
 
+        <!-- Telefon uchun pastki menyu (bottom navigation) -->
+        <nav id="bottom-nav" class="bottom-nav">
+            <button class="bn-item active" data-view="dashboard"><span class="bn-ico">🏠</span><span class="bn-lbl">Bosh</span></button>
+            <button class="bn-item" data-view="requests" data-type="all"><span class="bn-ico">📋</span><span class="bn-lbl">Zayavka</span></button>
+            <button class="bn-item bn-add hidden" id="bn-add"><span class="bn-ico">＋</span></button>
+            <button class="bn-item" data-view="stats"><span class="bn-ico">📈</span><span class="bn-lbl">Hisobot</span></button>
+            <button class="bn-item" id="bn-menu"><span class="bn-ico">☰</span><span class="bn-lbl">Menyu</span></button>
+        </nav>
+    </div>
+
     <!-- MODAL container -->
     <div id="modal-root"></div>
+
+    <!-- O'rnatish taklifi (PWA) -->
+    <button id="install-btn" class="install-btn hidden">⬇️ Ilovani o'rnatish</button>
 
     <script src="/static/app.js"></script>
 </body>

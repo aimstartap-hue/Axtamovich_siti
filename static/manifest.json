@@ -1,0 +1,16 @@
+{
+  "name": "AXO-OPEN group",
+  "short_name": "AXO-OPEN",
+  "description": "Ko'p tarmoqli biznes uchun AXO boshqaruv tizimi",
+  "start_url": "/",
+  "scope": "/",
+  "display": "standalone",
+  "orientation": "portrait-primary",
+  "background_color": "#0f1117",
+  "theme_color": "#0f1117",
+  "lang": "uz",
+  "icons": [
+    { "src": "/static/icon.svg", "sizes": "any", "type": "image/svg+xml", "purpose": "any" },
+    { "src": "/static/icon.svg", "sizes": "512x512", "type": "image/svg+xml", "purpose": "maskable" }
+  ]
+}
