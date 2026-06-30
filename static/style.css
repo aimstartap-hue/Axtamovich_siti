@@ -144,6 +144,14 @@ code { background: #00000040; padding: 1px 6px; border-radius: 5px; font-size: 1
 .tl-meta { font-size: 12px; color: var(--muted); }
 .tl-comment { font-size: 13px; opacity: .85; margin-top: 2px; }
 
+/* Izohlar (chat) */
+.comments { display: flex; flex-direction: column; gap: 8px; margin-bottom: 12px; }
+.comment { background: var(--panel2); border-radius: 10px; padding: 9px 12px; }
+.cm-head { font-size: 12px; font-weight: 700; }
+.cm-text { font-size: 14px; margin-top: 2px; }
+.comment-input { display: flex; gap: 8px; }
+.comment-input input { flex: 1; padding: 9px 12px; border-radius: 9px; border: 1px solid var(--border); background: var(--panel2); color: var(--text); font-size: 14px; }
+
 .report-box { background: var(--panel2); border-radius: 10px; padding: 14px; margin-bottom: 12px; }
 .items-table { width: 100%; border-collapse: collapse; margin-top: 8px; font-size: 13px; }
 .items-table th, .items-table td { text-align: left; padding: 6px 8px; border-bottom: 1px solid var(--border); }

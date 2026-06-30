@@ -212,6 +212,13 @@ def init_db():
             is_read INTEGER DEFAULT 0,
             created_at TEXT NOT NULL
         );
+        CREATE TABLE IF NOT EXISTS comments (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            request_id INTEGER NOT NULL REFERENCES requests(id),
+            user_id INTEGER NOT NULL REFERENCES users(id),
+            text TEXT NOT NULL,
+            created_at TEXT NOT NULL
+        );
         """
     )
     conn.commit()
@@ -526,6 +533,14 @@ def request_to_dict(conn, r, full=False):
                 "at": rep["created_at"],
                 "items": [{"name": i["name"], "category": i["category"] or "", "qty": i["qty"], "price": i["price"]} for i in items],
             })
+        comments = conn.execute(
+            "SELECT c.*, u.full_name, u.role FROM comments c LEFT JOIN users u ON u.id=c.user_id "
+            "WHERE request_id=? ORDER BY c.id", (r["id"],)
+        ).fetchall()
+        d["comments"] = [
+            {"text": c["text"], "user": c["full_name"] or "?", "role": ROLES.get(c["role"], ""), "at": c["created_at"]}
+            for c in comments
+        ]
     return d
 
 
@@ -816,6 +831,8 @@ class Handler(BaseHTTPRequestHandler):
             return self.send_to_hr(user, path)
         if path.endswith("/hr-resolve"):
             return self.hr_resolve(user, path)
+        if path.endswith("/comment"):
+            return self.add_comment(user, path)
         if path.endswith("/report"):
             return self.submit_report(user, path)
 
@@ -1103,6 +1120,42 @@ class Handler(BaseHTTPRequestHandler):
             "INSERT INTO events(request_id,user_id,action,comment,created_at) VALUES(?,?,?,?,?)",
             (rid, user["id"], "Foto-hisobot topshirdi", f"Jami: {total:,.0f}", now()),
         )
+        conn.commit()
+        conn.close()
+        return self.send_json({"ok": True})
+
+    def add_comment(self, user, path):
+        """Zayavkaga izoh (chat). Ko'ra oladigan har kim yoza oladi."""
+        rid = int(path.split("/")[3])
+        data = self.read_json()
+        text = (data.get("text") or "").strip()
+        if not text:
+            return self.send_json({"error": "Izoh bo'sh"}, 400)
+        conn = db()
+        r = conn.execute("SELECT * FROM requests WHERE id=?", (rid,)).fetchone()
+        if not r:
+            conn.close()
+            return self.send_json({"error": "Topilmadi"}, 404)
+        if not can_view(r, user):
+            conn.close()
+            return self.send_json({"error": "Huquq yo'q"}, 403)
+        conn.execute(
+            "INSERT INTO comments(request_id,user_id,text,created_at) VALUES(?,?,?,?)",
+            (rid, user["id"], text, now()),
+        )
+        # Ishtirokchilarga (egasi + ilgari harakat qilganlar) bildirishnoma
+        parts = set()
+        if r["created_by"]:
+            parts.add(r["created_by"])
+        for e in conn.execute("SELECT DISTINCT user_id FROM events WHERE request_id=?", (rid,)).fetchall():
+            if e["user_id"]:
+                parts.add(e["user_id"])
+        for e in conn.execute("SELECT DISTINCT user_id FROM comments WHERE request_id=?", (rid,)).fetchall():
+            if e["user_id"]:
+                parts.add(e["user_id"])
+        parts.discard(user["id"])
+        for uid in parts:
+            add_notification(conn, uid, rid, f"#{rid}: yangi izoh — {user['full_name']}")
         conn.commit()
         conn.close()
         return self.send_json({"ok": True})

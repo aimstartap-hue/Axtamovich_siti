@@ -353,6 +353,14 @@ async function openDetail(id) {
         ${r.limit_amount ? `<div class="deadline-box">💰 AXO uchun limit: <b>${fmtMoney(r.limit_amount)}</b>${reportTotal(r) > r.limit_amount ? ` <span class="overdue">— hisobot limitdan ${fmtMoney(reportTotal(r) - r.limit_amount)} oshgan!</span>` : (reportTotal(r) ? ` <span class="ok-tag">✅ limit ichida</span>` : "")}</div>` : ""}
         ${r.description ? `<div class="detail-section"><h4>Izoh</h4><p>${esc(r.description)}</p>${photoHtml}</div>` : (photoHtml ? `<div class="detail-section">${photoHtml}</div>` : "")}
         ${reportsHtml ? `<div class="detail-section"><h4>Foto-hisobot</h4>${reportsHtml}</div>` : ""}
+        <div class="detail-section">
+            <h4>💬 Izohlar</h4>
+            <div class="comments">${commentsHtml(r)}</div>
+            <div class="comment-input">
+                <input id="cmt-text" placeholder="Izoh yozing..." autocomplete="off" onkeydown="if(event.key==='Enter')sendComment(${r.id})">
+                <button class="btn btn-primary btn-sm" onclick="sendComment(${r.id})">Yuborish</button>
+            </div>
+        </div>
         <div class="detail-section"><h4>Harakatlar tarixi</h4><ul class="timeline">${timeline}</ul></div>
         <div class="modal-actions">
             <button class="btn btn-ghost" onclick="printRequest(${r.id})">🖨 Chop etish</button>
@@ -363,6 +371,23 @@ async function openDetail(id) {
 }
 function reportTotal(r) {
     return (r.reports || []).reduce((sum, rep) => sum + (Number(rep.total) || 0), 0);
+}
+function commentsHtml(r) {
+    const cs = r.comments || [];
+    if (!cs.length) return `<p class="muted">Hali izoh yo'q. Birinchi bo'lib yozing.</p>`;
+    return cs.map((c) => `
+        <div class="comment">
+            <div class="cm-head">${esc(c.user)} <span class="muted">${c.role ? "· " + esc(c.role) : ""} · ${c.at}</span></div>
+            <div class="cm-text">${esc(c.text)}</div>
+        </div>`).join("");
+}
+async function sendComment(id) {
+    const el = $("#cmt-text");
+    const text = el.value.trim();
+    if (!text) return;
+    const { ok, data } = await api(`/api/requests/${id}/comment`, "POST", { text });
+    if (ok) { openDetail(id); }
+    else alert((data && data.error) || "Xatolik");
 }
 
 function doApprove(id, setsDeadline, setsLimit) {
@@ -841,6 +866,11 @@ function buildRequestText(r) {
         });
         L.push("  JAMI: " + fmtMoney(rep.total));
     });
+    if ((r.comments || []).length) {
+        L.push(sub);
+        L.push("IZOHLAR:");
+        r.comments.forEach((c) => { L.push("  " + c.at + " | " + c.user + ": " + c.text); });
+    }
     L.push(sub);
     L.push("HARAKATLAR TARIXI:");
     (r.events || []).forEach((e) => {
