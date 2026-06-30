@@ -7,6 +7,8 @@ Brauzer:          http://localhost:8000
 """
 import json
 import os
+import io
+import csv
 import sqlite3
 import hashlib
 import secrets
@@ -571,6 +573,18 @@ class Handler(BaseHTTPRequestHandler):
         self.end_headers()
         self.wfile.write(body)
 
+    def send_csv(self, filename, rows):
+        buf = io.StringIO()
+        w = csv.writer(buf, delimiter=";")
+        w.writerows(rows)
+        body = ("﻿" + buf.getvalue()).encode("utf-8")  # BOM -> Excel kirillni to'g'ri ochadi
+        self.send_response(200)
+        self.send_header("Content-Type", "text/csv; charset=utf-8")
+        self.send_header("Content-Disposition", f'attachment; filename="{filename}"')
+        self.send_header("Content-Length", str(len(body)))
+        self.end_headers()
+        self.wfile.write(body)
+
     def read_json(self):
         length = int(self.headers.get("Content-Length", 0))
         if length == 0:
@@ -636,6 +650,38 @@ class Handler(BaseHTTPRequestHandler):
                 "groups": EXPENSE_GROUPS,
                 "type_groups": TYPE_GROUPS,
             })
+
+        if path == "/api/export/requests.csv":
+            conn = db()
+            reqs = [r for r in conn.execute("SELECT * FROM requests ORDER BY id").fetchall() if can_view(r, user)]
+            rows = [["#", "Tur", "Sarlavha", "Filial", "Yaratdi", "Holat", "Muddat", "AXO limiti", "Yaratilgan"]]
+            for r in reqs:
+                br = conn.execute("SELECT name FROM branches WHERE id=?", (r["branch_id"],)).fetchone() if r["branch_id"] else None
+                cr = conn.execute("SELECT full_name FROM users WHERE id=?", (r["created_by"],)).fetchone()
+                rows.append([r["id"], "Yangi filial" if r["type"] == "new_branch" else "Texnik",
+                             r["title"], br["name"] if br else "", cr["full_name"] if cr else "",
+                             STATUS_LABELS.get(r["status"], r["status"]), r["deadline"] or "",
+                             r["limit_amount"] or "", r["created_at"]])
+            conn.close()
+            return self.send_csv("zayavkalar.csv", rows)
+
+        if path == "/api/export/expenses.csv":
+            conn = db()
+            visible = {r["id"] for r in conn.execute("SELECT * FROM requests").fetchall() if can_view(r, user)}
+            data = conn.execute(
+                "SELECT ri.*, rp.request_id, rp.created_at AS rdate, req.title, req.branch_id "
+                "FROM report_items ri JOIN reports rp ON rp.id=ri.report_id "
+                "JOIN requests req ON req.id=rp.request_id ORDER BY rp.request_id"
+            ).fetchall()
+            rows = [["Sana", "Zayavka#", "Filial", "Rasxod turi", "Nomi", "Soni", "Narxi", "Jami"]]
+            for d in data:
+                if d["request_id"] not in visible:
+                    continue
+                br = conn.execute("SELECT name FROM branches WHERE id=?", (d["branch_id"],)).fetchone() if d["branch_id"] else None
+                rows.append([d["rdate"], d["request_id"], br["name"] if br else "", d["category"] or "",
+                             d["name"], d["qty"], d["price"], (d["qty"] or 0) * (d["price"] or 0)])
+            conn.close()
+            return self.send_csv("xarajatlar.csv", rows)
 
         if path == "/api/notifications":
             conn = db()

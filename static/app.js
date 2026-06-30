@@ -228,6 +228,11 @@ document.querySelectorAll(".chip").forEach((c) => {
     };
 });
 
+if ($("#search-box")) {
+    let st;
+    $("#search-box").addEventListener("input", () => { clearTimeout(st); st = setTimeout(loadRequests, 200); });
+}
+
 async function loadRequests() {
     const { data } = await api("/api/requests");
     const list = $("#requests-list");
@@ -246,6 +251,18 @@ async function loadRequests() {
     if (CURRENT_FILTER === "mine") items = items.filter((r) => r.needs_my_action);
     if (CURRENT_FILTER === "active") items = items.filter((r) => !["closed", "rejected"].includes(r.status));
     if (CURRENT_FILTER === "closed") items = items.filter((r) => ["closed", "rejected"].includes(r.status));
+
+    // qidiruv
+    const q = ($("#search-box") ? $("#search-box").value : "").trim().toLowerCase();
+    if (q) {
+        const qn = q.replace("#", "");
+        items = items.filter((r) =>
+            (r.title || "").toLowerCase().includes(q) ||
+            (r.branch || "").toLowerCase().includes(q) ||
+            (r.created_by || "").toLowerCase().includes(q) ||
+            String(r.id) === qn ||
+            (r.status_label || "").toLowerCase().includes(q));
+    }
 
     if (!items.length) {
         list.innerHTML = `<div class="empty">${CURRENT_FILTER === "mine" ? "Sizdan harakat talab qilinadigan zayavka yo'q. ✅" : "Hozircha zayavkalar yo'q."}</div>`;
@@ -653,6 +670,11 @@ async function loadStats() {
     const maxSpend = Math.max(1, ...s.branches.map((b) => b.spend));
     const barColors = ["#4f7cff", "#2fbf71", "#f5a623", "#a855f7", "#e5484d"];
     $("#stats-content").innerHTML = `
+        <div class="export-row">
+            <a class="btn btn-ghost btn-sm" href="/api/export/expenses.csv" download>⬇️ Excel — xarajatlar</a>
+            <a class="btn btn-ghost btn-sm" href="/api/export/requests.csv" download>⬇️ Excel — zayavkalar</a>
+            <button class="btn btn-ghost btn-sm" onclick="window.print()">🖨 PDF / chop etish</button>
+        </div>
         <div class="stat-cards">
             <div class="stat-card"><div class="stat-num">${s.total}</div><div class="stat-lbl">Jami zayavka</div></div>
             <div class="stat-card"><div class="stat-num" style="color:var(--amber)">${s.active}</div><div class="stat-lbl">Faol</div></div>

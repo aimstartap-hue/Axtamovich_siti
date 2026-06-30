@@ -108,6 +108,9 @@ code { background: #00000040; padding: 1px 6px; border-radius: 5px; font-size: 1
 .s-rejected { background: #e5484d22; color: var(--red); }
 
 .empty { text-align: center; color: var(--muted); padding: 60px 20px; }
+.search-box { width: 100%; padding: 11px 14px; margin-bottom: 14px; border-radius: 10px; border: 1px solid var(--border); background: var(--panel); color: var(--text); font-size: 14px; }
+.export-row { display: flex; gap: 8px; flex-wrap: wrap; margin-bottom: 16px; }
+.export-row a { text-decoration: none; }
 
 /* Modal */
 .modal-overlay {
