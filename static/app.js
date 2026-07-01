@@ -401,7 +401,7 @@ async function openDetail(id) {
         </div>
         ${r.deadline ? `<div class="deadline-box ${r.overdue ? "overdue-box" : ""}">📅 Muddat: <b>${r.deadline}</b> ${r.deadline_confirmed ? '<span class="ok-tag">✅ Moliya tasdiqladi</span>' : '<span class="muted">— moliya tasdig\'i kutilmoqda</span>'} ${r.overdue ? '<span class="overdue">— muddat o\'tib ketdi!</span>' : ""}</div>` : ""}
         ${r.suggested_deadline && r.status === "deadline_dispute" ? `<div class="deadline-box overdue-box">⚠️ Moliya boshqa sana taklif qildi: <b>${r.suggested_deadline}</b> — CEO hal qilishi kerak</div>` : ""}
-        ${r.estimated_amount ? `<div class="deadline-box">💵 AXO taxminiy summasi: <b>${(Number(r.estimated_amount) || 0).toLocaleString("ru-RU")} ${esc(r.estimated_currency || "so'm")}</b></div>` : ""}
+        ${r.estimated_amount ? `<div class="deadline-box">💵 AXO summasi: <b>${(Number(r.estimated_amount) || 0).toLocaleString("ru-RU")} ${esc(r.estimated_currency || "so'm")}</b></div>` : ""}
         ${r.limit_amount ? `<div class="deadline-box">💰 AXO uchun limit: <b>${fmtMoney(r.limit_amount)}</b>${reportTotal(r) > r.limit_amount ? ` <span class="overdue">— hisobot limitdan ${fmtMoney(reportTotal(r) - r.limit_amount)} oshgan!</span>` : (reportTotal(r) ? ` <span class="ok-tag">✅ limit ichida</span>` : "")}</div>` : ""}
         ${r.description ? `<div class="detail-section"><h4>Izoh</h4><p>${esc(r.description)}</p>${photoHtml}</div>` : (photoHtml ? `<div class="detail-section">${photoHtml}</div>` : "")}
         ${r.estimated_category ? `<div class="deadline-box">🏷 Rasxod turi: <b>${esc(r.estimated_category)}</b></div>` : ""}
@@ -435,6 +435,11 @@ async function sendComment(id) {
     else alert((data && data.error) || "Xatolik");
 }
 
+// Summani "20000" -> "20 000" ko'rinishida jonli formatlaydi
+function formatMoneyInput(el) {
+    const digits = el.value.replace(/\D/g, "");
+    el.value = digits ? digits.replace(/\B(?=(\d{3})+(?!\d))/g, " ") : "";
+}
 async function doApprove(id, setsDeadline, setsLimit, setsEstimate) {
     // Muddat/limit/summa kerak bo'lmasa — bir bosishda, ortiqcha izoh so'ramasdan tasdiqlaydi
     if (!setsDeadline && !setsLimit && !setsEstimate) {
@@ -450,7 +455,7 @@ async function doApprove(id, setsDeadline, setsLimit, setsEstimate) {
         ${setsEstimate ? `
             <div class="field"><label>1️⃣ 💵 Summa (narx)</label>
                 <div style="display:flex;gap:8px">
-                    <input type="number" id="ap-estimate" min="0" placeholder="Masalan: 500000" autocomplete="off" style="flex:1">
+                    <input type="text" inputmode="numeric" id="ap-estimate" placeholder="Masalan: 500 000" autocomplete="off" style="flex:1" oninput="formatMoneyInput(this)">
                     <select id="ap-currency" style="width:110px">
                         <option value="so'm">so'm</option>
                         <option value="USD">USD $</option>
@@ -459,10 +464,7 @@ async function doApprove(id, setsDeadline, setsLimit, setsEstimate) {
                     </select>
                 </div>
             </div>
-            <div class="field"><label>2️⃣ 🏷 Rasxod turi</label>
-                <select id="ap-category">${(function(){ REPORT_TYPE = "maintenance"; return categoryOptionsHtml(); })()}</select>
-            </div>
-            <div class="field"><label>3️⃣ ✍️ Izoh (ixtiyoriy)</label>
+            <div class="field"><label>2️⃣ ✍️ Izoh (ixtiyoriy)</label>
                 <textarea id="ap-comment" autocomplete="off" placeholder="Qo'shimcha izoh (ixtiyoriy)"></textarea>
             </div>` : ""}
         ${setsDeadline ? `<div class="field"><label>📅 Bajarilish muddati (dedline)</label><input type="date" id="ap-deadline" min="${today}" value="${today}"></div>
@@ -483,9 +485,9 @@ async function confirmApprove(id, setsDeadline, setsLimit, setsEstimate) {
     }
     if (setsLimit && $("#ap-limit") && $("#ap-limit").value) body.limit = parseFloat($("#ap-limit").value);
     if (setsEstimate) {
-        if ($("#ap-estimate") && $("#ap-estimate").value) body.estimated = parseFloat($("#ap-estimate").value);
+        const raw = $("#ap-estimate") ? $("#ap-estimate").value.replace(/\s/g, "") : "";
+        if (raw) body.estimated = parseFloat(raw);
         body.currency = $("#ap-currency") ? $("#ap-currency").value : "so'm";
-        body.category = $("#ap-category") ? $("#ap-category").value : "";
         body.comment = $("#ap-comment") ? $("#ap-comment").value : "";
     }
     const { ok, data } = await api(`/api/requests/${id}/approve`, "POST", body);
@@ -1025,9 +1027,11 @@ async function deleteSupplier(id) {
 // ---------------- ADMIN ----------------
 let ROLE_MAP = {};
 async function loadAdmin() {
-    const [{ data: ud }, { data: branches }] = await Promise.all([api("/api/users"), api("/api/branches")]);
+    const [{ data: ud }, { data: branches }, { data: settings }] = await Promise.all([
+        api("/api/users"), api("/api/branches"), api("/api/settings")]);
     if (!ud || ud.error) { $("#admin-content").innerHTML = `<p class="muted">Ruxsat yo'q.</p>`; return; }
     ROLE_MAP = ud.roles;
+    const thr = (settings && settings.ceo_threshold) || 50000000;
     const usersRows = ud.users.map((u) => `
         <tr>
             <td>${esc(u.full_name)}</td>
@@ -1055,6 +1059,16 @@ async function loadAdmin() {
     $("#admin-content").innerHTML = `
         <div class="settings-grid">
             <div class="settings-panel">
+                <h3 class="panel-title">⚙️ Tasdiqlash chegarasi</h3>
+                <p class="muted" style="margin-bottom:10px">Eski (savdodagi) filiallarda texnik zayavka summasi shu chegaradan <b>oshsa</b>, AXO tasdig'idan keyin so'rov <b>CEO</b> ga ham boradi. Kichik summalar to'g'ridan Moliyaga o'tadi.</p>
+                <div style="display:flex;gap:8px;align-items:center;max-width:520px">
+                    <input type="text" inputmode="numeric" id="set-threshold" value="${Number(thr).toLocaleString('ru-RU').replace(/,/g,' ')}" oninput="formatMoneyInput(this)" style="flex:1">
+                    <span class="muted">so'm</span>
+                    <button class="btn btn-primary btn-sm" onclick="saveThreshold()">💾 Saqlash</button>
+                </div>
+            </div>
+
+            <div class="settings-panel">
                 <div class="admin-head"><h3 class="panel-title">👥 Foydalanuvchilar</h3><button class="btn btn-primary btn-sm" onclick="openUserForm()">+ Foydalanuvchi</button></div>
                 <div class="table-wrap">
                 <table class="items-table">
@@ -1077,6 +1091,13 @@ async function loadAdmin() {
         </div>`;
 }
 
+async function saveThreshold() {
+    const raw = $("#set-threshold").value.replace(/\s/g, "");
+    if (!raw || isNaN(parseFloat(raw))) { alert("To'g'ri summa kiriting"); return; }
+    const { ok, data } = await api("/api/settings", "POST", { ceo_threshold: raw });
+    if (ok) { alert("✅ Chegara saqlandi: " + parseFloat(raw).toLocaleString("ru-RU") + " so'm"); }
+    else alert((data && data.error) || "Xatolik");
+}
 async function openUserForm() {
     const { data: branches } = await api("/api/branches");
     const roleOpts = Object.entries(ROLE_MAP).map(([k, v]) => `<option value="${k}">${esc(v)}</option>`).join("");

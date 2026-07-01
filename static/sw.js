@@ -1,5 +1,5 @@
 // AXO-OPEN group — Service Worker (oddiy offline kesh)
-const CACHE = "axo-open-v1";
+const CACHE = "axo-open-v3";
 const ASSETS = [
   "/",
   "/static/index.html",
@@ -27,7 +27,18 @@ self.addEventListener("fetch", (e) => {
     e.respondWith(fetch(e.request).catch(() => new Response(JSON.stringify({ error: "offline" }), { headers: { "Content-Type": "application/json" } })));
     return;
   }
-  // Statik fayllar: avval kesh, keyin tarmoq (offline ishlashi uchun)
+  // HTML / navigatsiya (index.html) — HAR DOIM tarmoqdan (yangi kodni ko'rish uchun), offlineda kesh
+  if (e.request.mode === "navigate" || url.pathname === "/" || url.pathname.endsWith(".html")) {
+    e.respondWith(
+      fetch(e.request).then((res) => {
+        const copy = res.clone();
+        caches.open(CACHE).then((c) => c.put(e.request, copy)).catch(() => {});
+        return res;
+      }).catch(() => caches.match(e.request).then((c) => c || caches.match("/static/index.html")))
+    );
+    return;
+  }
+  // Boshqa statik fayllar (?v= bilan versiyalangan): avval kesh, keyin tarmoq
   e.respondWith(
     caches.match(e.request).then((cached) => cached || fetch(e.request).then((res) => {
       const copy = res.clone();

@@ -263,6 +263,10 @@ def init_db():
             note TEXT,
             created_at TEXT NOT NULL
         );
+        CREATE TABLE IF NOT EXISTS settings (
+            key TEXT PRIMARY KEY,
+            value TEXT
+        );
         """
     )
     conn.commit()
@@ -287,6 +291,10 @@ def init_db():
     add_col("report_items", "supplier", "TEXT")
     add_col("branches", "status", "TEXT DEFAULT 'active'")
     add_col("branches", "regmen_id", "INTEGER")
+    conn.commit()
+
+    # Sozlama: CEO tasdig'i talab qilinadigan summa chegarasi (admin o'zgartira oladi)
+    c.execute("INSERT OR IGNORE INTO settings(key,value) VALUES('ceo_threshold','50000000')")
     conn.commit()
 
     # Seed (faqat bo'sh bo'lsa) — HAQIQIY MA'LUMOTLAR (Zahratun fast-food tarmog'i)
@@ -364,30 +372,34 @@ def init_db():
 # ---------------------------------------------------------------------------
 # Workflow logikasi
 # ---------------------------------------------------------------------------
+DEFAULT_CEO_THRESHOLD = 50000000.0
+
+
+def get_threshold(conn):
+    """CEO tasdig'i talab qilinadigan summa chegarasi (admin sozlaydi)."""
+    try:
+        row = conn.execute("SELECT value FROM settings WHERE key='ceo_threshold'").fetchone()
+        return float(row["value"]) if row and row["value"] else DEFAULT_CEO_THRESHOLD
+    except Exception:
+        return DEFAULT_CEO_THRESHOLD
+
+
 def start_status(rtype):
-    """Zayavka boshlang'ich statusi. Texnik -> avval AXO, yangi filial -> CEO."""
-    return "pending_axo" if rtype == "maintenance" else "pending_ceo"
+    """Har ikki tur ham avval AXO qo'lidan o'tadi."""
+    return "pending_axo"
 
 
 def can_approve(request, role):
     """Berilgan rol shu statusdagi zayavkani tasdiqlay oladimi?"""
-    t, s = request["type"], request["status"]
-    if t == "maintenance":
-        if s == "pending_axo":               # avval AXO ko'rib tasdiqlaydi
-            return role == "axo"
-        if s == "pending_ceo":               # CEO tasdiqlaydi + muddat qo'yadi
-            return role == "ceo"
-        if s == "pending_finance":           # Moliya tasdiqlaydi + limit qo'yadi
-            return role == "finance"
-        if s == "report_submitted":          # yopilishini tasdiqlaydi
-            return role in ("ceo", "finance")
-    elif t == "new_branch":
-        if s == "pending_ceo":
-            return role == "ceo"
-        if s == "pending_finance":
-            return role == "finance"
-        if s == "report_submitted":
-            return role in ("ceo", "finance")
+    s = request["status"]
+    if s == "pending_axo":                   # avval AXO ko'rib tasdiqlaydi + summa
+        return role == "axo"
+    if s == "pending_ceo":                   # katta summa bo'lsa CEO tasdiqlaydi
+        return role == "ceo"
+    if s == "pending_finance":               # Moliya tasdiqlaydi + limit qo'yadi
+        return role == "finance"
+    if s == "report_submitted":              # ochchot yopilishini Moliya tasdiqlaydi
+        return role in ("ceo", "finance")
     return False
 
 
@@ -402,8 +414,8 @@ def sets_limit_on_approve(request):
 
 
 def sets_estimate_on_approve(request):
-    """Shu tasdiqda AXO taxminiy summa (narx) kiritadimi? — AXO bosqichida."""
-    return request["type"] == "maintenance" and request["status"] == "pending_axo"
+    """Shu tasdiqda AXO summa (narx) kiritadimi? — AXO bosqichida (har ikki tur)."""
+    return request["status"] == "pending_axo"
 
 
 def can_request_deadline_change(request, role):
@@ -417,24 +429,25 @@ def can_resolve_dispute(request, role):
     return request["status"] == "deadline_dispute" and role == "ceo"
 
 
-def next_status_on_approve(request):
+def next_status_on_approve(request, amount=None, threshold=DEFAULT_CEO_THRESHOLD):
+    """Keyingi status.
+    - Yangi filial: AXO -> CEO -> Moliya (CEO doim ishtirok etadi).
+    - Eski filial (texnik): AXO -> Moliya. Faqat summa chegaradan katta bo'lsa AXO -> CEO -> Moliya.
+    """
     t, s = request["type"], request["status"]
-    if t == "maintenance":
-        if s == "pending_axo":
+    if s == "pending_axo":
+        if t == "new_branch":
             return "pending_ceo"
-        if s == "pending_ceo":
-            return "pending_finance"
-        if s == "pending_finance":
-            return "approved"            # AXO korzinkasiga tushadi
-        if s == "report_submitted":
-            return "closed"
-    elif t == "new_branch":
-        if s == "pending_ceo":
-            return "pending_finance"
-        if s == "pending_finance":
-            return "funded"
-        if s == "report_submitted":
-            return "closed"
+        # maintenance: katta summa bo'lsa CEO ga, aks holda to'g'ridan Moliyaga
+        if amount is not None and amount > threshold:
+            return "pending_ceo"
+        return "pending_finance"
+    if s == "pending_ceo":
+        return "pending_finance"
+    if s == "pending_finance":
+        return "funded" if t == "new_branch" else "approved"
+    if s == "report_submitted":
+        return "closed"
     return s
 
 
@@ -1126,6 +1139,11 @@ class Handler(BaseHTTPRequestHandler):
                 "status_labels": STATUS_LABELS,
             })
 
+        if path == "/api/settings":
+            thr = get_threshold(conn)
+            conn.close()
+            return self.send_json({"ceo_threshold": thr})
+
         if path.startswith("/api/requests/"):
             rid = int(path.rsplit("/", 1)[-1])
             r = conn.execute("SELECT * FROM requests WHERE id=?", (rid,)).fetchone()
@@ -1233,6 +1251,21 @@ class Handler(BaseHTTPRequestHandler):
         if path == "/api/suppliers" or (path.startswith("/api/suppliers/") and path.endswith("/delete")):
             return self.handle_suppliers_post(user, path)
 
+        if path == "/api/settings":
+            if user["role"] not in ADMIN_ROLES:
+                return self.send_json({"error": "Faqat admin sozlamalarni o'zgartiradi"}, 403)
+            data = self.read_json()
+            try:
+                thr = float(str(data.get("ceo_threshold")).replace(" ", "").replace(",", ""))
+            except (TypeError, ValueError):
+                return self.send_json({"error": "Noto'g'ri summa"}, 400)
+            conn = db()
+            conn.execute("INSERT INTO settings(key,value) VALUES('ceo_threshold',?) "
+                         "ON CONFLICT(key) DO UPDATE SET value=excluded.value", (str(thr),))
+            conn.commit()
+            conn.close()
+            return self.send_json({"ok": True, "ceo_threshold": thr})
+
         # --- Admin/Operator amallari ---
         if path in ("/api/users", "/api/branches") or path.startswith("/api/users/") or path.startswith("/api/branches/"):
             # Qurilishni tugatib filialni faollashtirishni CEO ham tasdiqlay oladi
@@ -1315,8 +1348,17 @@ class Handler(BaseHTTPRequestHandler):
         if not can_approve(r, user["role"]):
             conn.close()
             return self.send_json({"error": "Sizda bu bosqichni tasdiqlash huquqi yo'q"}, 403)
-        new_status = next_status_on_approve(r)
         comment = data.get("comment", "")
+
+        # AXO bosqichida summa oldindan hisoblanadi (keyingi yo'nalishni belgilaydi)
+        est = None
+        if sets_estimate_on_approve(r):
+            try:
+                est_raw = data.get("estimated")
+                est = float(est_raw) if est_raw not in (None, "") else None
+            except (TypeError, ValueError):
+                est = None
+        new_status = next_status_on_approve(r, est, get_threshold(conn))
 
         # Muddat (deadline) belgilash — CEO bosqichida
         if sets_deadline_on_approve(r):
@@ -1343,20 +1385,14 @@ class Handler(BaseHTTPRequestHandler):
             if limit:
                 comment = (comment + f"  💰 AXO limiti: {limit:,.0f} so'm").strip()
         elif sets_estimate_on_approve(r):
-            # AXO tasdiqlaydi + taxminiy summa (narx) kiritadi
-            est = data.get("estimated")
-            try:
-                est = float(est) if est not in (None, "") else None
-            except (TypeError, ValueError):
-                est = None
+            # AXO tasdiqlaydi + summa (narx) kiritadi (rasxod turi bu bosqichda emas)
             cur = (data.get("currency") or "so'm").strip() or "so'm"
-            cat = (data.get("category") or "").strip()
-            conn.execute("UPDATE requests SET status=?, estimated_amount=?, estimated_currency=?, estimated_category=? WHERE id=?",
-                         (new_status, est, cur, cat, rid))
+            conn.execute("UPDATE requests SET status=?, estimated_amount=?, estimated_currency=? WHERE id=?",
+                         (new_status, est, cur, rid))
             if est:
-                comment = (comment + f"  💵 Taxminiy summa: {est:,.0f} {cur}").strip()
-            if cat:
-                comment = (comment + f"  🏷 Rasxod turi: {cat}").strip()
+                comment = (comment + f"  💵 Summa: {est:,.0f} {cur}").strip()
+            if new_status == "pending_ceo":
+                comment = (comment + "  ⚠️ Chegaradan yuqori — CEO tasdig'iga yuborildi").strip()
         else:
             conn.execute("UPDATE requests SET status=? WHERE id=?", (new_status, rid))
 
