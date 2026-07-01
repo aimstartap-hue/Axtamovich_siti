@@ -281,6 +281,7 @@ def init_db():
     add_col("requests", "limit_amount", "REAL")
     add_col("requests", "estimated_amount", "REAL")
     add_col("requests", "estimated_currency", "TEXT DEFAULT 'so''m'")
+    add_col("requests", "estimated_category", "TEXT")
     add_col("requests", "escalated", "INTEGER DEFAULT 0")
     add_col("report_items", "category", "TEXT")
     add_col("report_items", "supplier", "TEXT")
@@ -679,6 +680,7 @@ def request_to_dict(conn, r, full=False):
         "limit_amount": r["limit_amount"],
         "estimated_amount": r["estimated_amount"],
         "estimated_currency": r["estimated_currency"] or "so'm",
+        "estimated_category": r["estimated_category"] or "",
         "overdue": bool(r["deadline"] and r["status"] not in ("closed", "rejected")
                         and r["deadline"] < datetime.now().strftime("%Y-%m-%d")),
         "escalated": bool(r["escalated"]),
@@ -1348,10 +1350,13 @@ class Handler(BaseHTTPRequestHandler):
             except (TypeError, ValueError):
                 est = None
             cur = (data.get("currency") or "so'm").strip() or "so'm"
-            conn.execute("UPDATE requests SET status=?, estimated_amount=?, estimated_currency=? WHERE id=?",
-                         (new_status, est, cur, rid))
+            cat = (data.get("category") or "").strip()
+            conn.execute("UPDATE requests SET status=?, estimated_amount=?, estimated_currency=?, estimated_category=? WHERE id=?",
+                         (new_status, est, cur, cat, rid))
             if est:
                 comment = (comment + f"  💵 Taxminiy summa: {est:,.0f} {cur}").strip()
+            if cat:
+                comment = (comment + f"  🏷 Rasxod turi: {cat}").strip()
         else:
             conn.execute("UPDATE requests SET status=? WHERE id=?", (new_status, rid))
 

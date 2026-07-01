@@ -404,15 +404,8 @@ async function openDetail(id) {
         ${r.estimated_amount ? `<div class="deadline-box">💵 AXO taxminiy summasi: <b>${(Number(r.estimated_amount) || 0).toLocaleString("ru-RU")} ${esc(r.estimated_currency || "so'm")}</b></div>` : ""}
         ${r.limit_amount ? `<div class="deadline-box">💰 AXO uchun limit: <b>${fmtMoney(r.limit_amount)}</b>${reportTotal(r) > r.limit_amount ? ` <span class="overdue">— hisobot limitdan ${fmtMoney(reportTotal(r) - r.limit_amount)} oshgan!</span>` : (reportTotal(r) ? ` <span class="ok-tag">✅ limit ichida</span>` : "")}</div>` : ""}
         ${r.description ? `<div class="detail-section"><h4>Izoh</h4><p>${esc(r.description)}</p>${photoHtml}</div>` : (photoHtml ? `<div class="detail-section">${photoHtml}</div>` : "")}
+        ${r.estimated_category ? `<div class="deadline-box">🏷 Rasxod turi: <b>${esc(r.estimated_category)}</b></div>` : ""}
         ${reportsHtml ? `<div class="detail-section"><h4>Foto-hisobot</h4>${reportsHtml}</div>` : ""}
-        <div class="detail-section">
-            <h4>💬 Izohlar</h4>
-            <div class="comments">${commentsHtml(r)}</div>
-            <div class="comment-input">
-                <input id="cmt-text" placeholder="Izoh yozing..." autocomplete="off" onkeydown="if(event.key==='Enter')sendComment(${r.id})">
-                <button class="btn btn-primary btn-sm" onclick="sendComment(${r.id})">Yuborish</button>
-            </div>
-        </div>
         <div class="detail-section"><h4>Harakatlar tarixi</h4><ul class="timeline">${timeline}</ul></div>
         <div class="modal-actions">
             <button class="btn btn-ghost" onclick="printRequest(${r.id})">🖨 Chop etish</button>
@@ -454,17 +447,24 @@ async function doApprove(id, setsDeadline, setsLimit, setsEstimate) {
     showModal(`
         <button class="modal-close" onclick="closeModal()">&times;</button>
         <h3>Tasdiqlash</h3>
-        ${setsEstimate ? `<div class="field"><label>💵 Taxminiy summa (narx)</label>
-            <div style="display:flex;gap:8px">
-                <input type="number" id="ap-estimate" min="0" placeholder="Masalan: 500000" autocomplete="off" style="flex:1">
-                <select id="ap-currency" style="width:110px">
-                    <option value="so'm">so'm</option>
-                    <option value="USD">USD $</option>
-                    <option value="EUR">EUR €</option>
-                    <option value="RUB">RUB ₽</option>
-                </select>
-            </div></div>
-            <p class="muted">Ishning taxminiy narxini va valyutasini tanlang — CEO va Moliya shu asosda qaror qiladi.</p>` : ""}
+        ${setsEstimate ? `
+            <div class="field"><label>1️⃣ 💵 Summa (narx)</label>
+                <div style="display:flex;gap:8px">
+                    <input type="number" id="ap-estimate" min="0" placeholder="Masalan: 500000" autocomplete="off" style="flex:1">
+                    <select id="ap-currency" style="width:110px">
+                        <option value="so'm">so'm</option>
+                        <option value="USD">USD $</option>
+                        <option value="EUR">EUR €</option>
+                        <option value="RUB">RUB ₽</option>
+                    </select>
+                </div>
+            </div>
+            <div class="field"><label>2️⃣ 🏷 Rasxod turi</label>
+                <select id="ap-category">${(function(){ REPORT_TYPE = "maintenance"; return categoryOptionsHtml(); })()}</select>
+            </div>
+            <div class="field"><label>3️⃣ ✍️ Izoh (ixtiyoriy)</label>
+                <textarea id="ap-comment" autocomplete="off" placeholder="Qo'shimcha izoh (ixtiyoriy)"></textarea>
+            </div>` : ""}
         ${setsDeadline ? `<div class="field"><label>📅 Bajarilish muddati (dedline)</label><input type="date" id="ap-deadline" min="${today}" value="${today}"></div>
             <p class="muted">Muddatni belgilang. Keyingi bosqichda moliya bu sanani tasdiqlaydi yoki o'zgartirishni so'raydi.</p>` : ""}
         ${setsLimit ? `<div class="field"><label>💰 AXO uchun xarajat limiti (so'm, ixtiyoriy)</label><input type="number" id="ap-limit" min="0" placeholder="Masalan: 1000000" autocomplete="off"></div>
@@ -482,9 +482,11 @@ async function confirmApprove(id, setsDeadline, setsLimit, setsEstimate) {
         body.deadline = dl;
     }
     if (setsLimit && $("#ap-limit") && $("#ap-limit").value) body.limit = parseFloat($("#ap-limit").value);
-    if (setsEstimate && $("#ap-estimate") && $("#ap-estimate").value) {
-        body.estimated = parseFloat($("#ap-estimate").value);
+    if (setsEstimate) {
+        if ($("#ap-estimate") && $("#ap-estimate").value) body.estimated = parseFloat($("#ap-estimate").value);
         body.currency = $("#ap-currency") ? $("#ap-currency").value : "so'm";
+        body.category = $("#ap-category") ? $("#ap-category").value : "";
+        body.comment = $("#ap-comment") ? $("#ap-comment").value : "";
     }
     const { ok, data } = await api(`/api/requests/${id}/approve`, "POST", body);
     if (ok) { closeModal(); refreshCurrentView(); }
