@@ -283,6 +283,7 @@ def init_db():
     add_col("requests", "suggested_deadline", "TEXT")
     add_col("requests", "deadline_disputed", "INTEGER DEFAULT 0")
     add_col("requests", "limit_amount", "REAL")
+    add_col("requests", "limit_type", "TEXT DEFAULT 'soft'")   # 'soft' = ogohlantiradi, 'hard' = qat'iy bloklaydi
     add_col("requests", "estimated_amount", "REAL")
     add_col("requests", "estimated_currency", "TEXT DEFAULT 'so''m'")
     add_col("requests", "estimated_category", "TEXT")
@@ -293,8 +294,9 @@ def init_db():
     add_col("branches", "regmen_id", "INTEGER")
     conn.commit()
 
-    # Sozlama: CEO tasdig'i talab qilinadigan summa chegarasi (admin o'zgartira oladi)
+    # Sozlamalar (admin o'zgartira oladi)
     c.execute("INSERT OR IGNORE INTO settings(key,value) VALUES('ceo_threshold','50000000')")
+    c.execute("INSERT OR IGNORE INTO settings(key,value) VALUES('axo_open_limit','5')")  # AXO bir vaqtda nechta topshirilmagan ochchot ushlashi mumkin
     conn.commit()
 
     # Seed (faqat bo'sh bo'lsa) — HAQIQIY MA'LUMOTLAR (Zahratun fast-food tarmog'i)
@@ -382,6 +384,15 @@ def get_threshold(conn):
         return float(row["value"]) if row and row["value"] else DEFAULT_CEO_THRESHOLD
     except Exception:
         return DEFAULT_CEO_THRESHOLD
+
+
+def get_axo_open_limit(conn):
+    """AXO bir vaqtda ushlashi mumkin bo'lgan topshirilmagan ochchotlar soni (admin sozlaydi)."""
+    try:
+        row = conn.execute("SELECT value FROM settings WHERE key='axo_open_limit'").fetchone()
+        return int(float(row["value"])) if row and row["value"] else 5
+    except Exception:
+        return 5
 
 
 def start_status(rtype):
@@ -691,6 +702,7 @@ def request_to_dict(conn, r, full=False):
         "deadline_confirmed": bool(r["deadline_confirmed"]),
         "suggested_deadline": r["suggested_deadline"],
         "limit_amount": r["limit_amount"],
+        "limit_type": (r["limit_type"] if "limit_type" in r.keys() else "soft") or "soft",
         "estimated_amount": r["estimated_amount"],
         "estimated_currency": r["estimated_currency"] or "so'm",
         "estimated_category": r["estimated_category"] or "",
@@ -1141,8 +1153,9 @@ class Handler(BaseHTTPRequestHandler):
 
         if path == "/api/settings":
             thr = get_threshold(conn)
+            axo_lim = get_axo_open_limit(conn)
             conn.close()
-            return self.send_json({"ceo_threshold": thr})
+            return self.send_json({"ceo_threshold": thr, "axo_open_limit": axo_lim})
 
         if path.startswith("/api/requests/"):
             rid = int(path.rsplit("/", 1)[-1])
@@ -1255,16 +1268,31 @@ class Handler(BaseHTTPRequestHandler):
             if user["role"] not in ADMIN_ROLES:
                 return self.send_json({"error": "Faqat admin sozlamalarni o'zgartiradi"}, 403)
             data = self.read_json()
-            try:
-                thr = float(str(data.get("ceo_threshold")).replace(" ", "").replace(",", ""))
-            except (TypeError, ValueError):
-                return self.send_json({"error": "Noto'g'ri summa"}, 400)
             conn = db()
-            conn.execute("INSERT INTO settings(key,value) VALUES('ceo_threshold',?) "
-                         "ON CONFLICT(key) DO UPDATE SET value=excluded.value", (str(thr),))
+            saved = {}
+            if data.get("ceo_threshold") is not None:
+                try:
+                    thr = float(str(data.get("ceo_threshold")).replace(" ", "").replace(",", ""))
+                except (TypeError, ValueError):
+                    conn.close()
+                    return self.send_json({"error": "Noto'g'ri summa"}, 400)
+                conn.execute("INSERT INTO settings(key,value) VALUES('ceo_threshold',?) "
+                             "ON CONFLICT(key) DO UPDATE SET value=excluded.value", (str(thr),))
+                saved["ceo_threshold"] = thr
+            if data.get("axo_open_limit") is not None:
+                try:
+                    lim = int(float(str(data.get("axo_open_limit")).replace(" ", "")))
+                    if lim < 1:
+                        lim = 1
+                except (TypeError, ValueError):
+                    conn.close()
+                    return self.send_json({"error": "Noto'g'ri son"}, 400)
+                conn.execute("INSERT INTO settings(key,value) VALUES('axo_open_limit',?) "
+                             "ON CONFLICT(key) DO UPDATE SET value=excluded.value", (str(lim),))
+                saved["axo_open_limit"] = lim
             conn.commit()
             conn.close()
-            return self.send_json({"ok": True, "ceo_threshold": thr})
+            return self.send_json({"ok": True, **saved})
 
         # --- Admin/Operator amallari ---
         if path in ("/api/users", "/api/branches") or path.startswith("/api/users/") or path.startswith("/api/branches/"):
@@ -1348,6 +1376,19 @@ class Handler(BaseHTTPRequestHandler):
         if not can_approve(r, user["role"]):
             conn.close()
             return self.send_json({"error": "Sizda bu bosqichni tasdiqlash huquqi yo'q"}, 403)
+
+        # AXO topshirilmagan ochchot chegarasi: 'approved' (ish bajarilib, ochchot kutilayotgan) zayavkalar
+        if r["status"] == "pending_axo" and r["type"] == "maintenance" and user["role"] == "axo":
+            open_limit = get_axo_open_limit(conn)
+            open_cnt = conn.execute(
+                "SELECT COUNT(*) FROM requests WHERE type='maintenance' AND status='approved'").fetchone()[0]
+            if open_cnt >= open_limit:
+                conn.close()
+                return self.send_json({
+                    "error": f"Sizda {open_cnt} ta topshirilmagan ochchot bor (chegara: {open_limit}). "
+                             f"Yangi zayavkani qabul qilishdan oldin avval o'shalarni yopib, foto-hisobot topshiring."
+                }, 400)
+
         comment = data.get("comment", "")
 
         # AXO bosqichida summa oldindan hisoblanadi (keyingi yo'nalishni belgilaydi)
@@ -1376,14 +1417,18 @@ class Handler(BaseHTTPRequestHandler):
                 limit = float(limit) if limit not in (None, "") else None
             except (TypeError, ValueError):
                 limit = None
+            ltype = (data.get("limit_type") or "soft").strip()
+            if ltype not in ("soft", "hard"):
+                ltype = "soft"
             conn.execute(
-                "UPDATE requests SET status=?, deadline_confirmed=1, limit_amount=? WHERE id=?",
-                (new_status, limit, rid),
+                "UPDATE requests SET status=?, deadline_confirmed=1, limit_amount=?, limit_type=? WHERE id=?",
+                (new_status, limit, ltype, rid),
             )
             if r["deadline"]:
                 comment = (comment + f"  ✅ Muddat tasdiqlandi: {r['deadline']}").strip()
             if limit:
-                comment = (comment + f"  💰 AXO limiti: {limit:,.0f} so'm").strip()
+                tag = "🔒 QAT'IY limit" if ltype == "hard" else "🟡 Limit (ogohlantirish)"
+                comment = (comment + f"  {tag}: {limit:,.0f} so'm").strip()
         elif sets_estimate_on_approve(r):
             # AXO tasdiqlaydi + summa (narx) kiritadi (rasxod turi bu bosqichda emas)
             cur = (data.get("currency") or "so'm").strip() or "so'm"
@@ -1572,6 +1617,19 @@ class Handler(BaseHTTPRequestHandler):
                 total += float(it.get("qty", 1)) * float(it.get("price", 0))
             except Exception:
                 pass
+
+        # Qat'iy (hard) limit — AXO bu summadan oshib sarflay olmaydi
+        try:
+            ltype = r["limit_type"] or "soft"
+        except (IndexError, KeyError):
+            ltype = "soft"
+        if r["limit_amount"] and ltype == "hard" and total > float(r["limit_amount"]) + 0.001:
+            conn.close()
+            return self.send_json({
+                "error": f"🔒 Qat'iy limit {float(r['limit_amount']):,.0f} so'm. "
+                         f"Siz {total:,.0f} so'm kiritdingiz — limitdan oshdi, hisobotni topshirib bo'lmaydi. "
+                         f"Summani kamaytiring yoki Moliyadan limitni oshirishni so'rang."
+            }, 400)
 
         photos = []
         for p in data.get("photos", []):

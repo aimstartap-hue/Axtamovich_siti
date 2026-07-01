@@ -161,6 +161,13 @@ function switchView(view, type) {
     if (view === "suppliers") loadSuppliers();
     closeDrawer();
 }
+// Dashboard kartasidan zayavkalar ro'yxatiga o'tish (filtr bilan)
+function gotoRequests(filter) {
+    switchView("requests", "all");
+    CURRENT_FILTER = filter || "all";
+    document.querySelectorAll(".chip").forEach((x) => x.classList.toggle("active", x.dataset.filter === CURRENT_FILTER));
+    loadRequests();
+}
 function openDrawer() { $("#drawer").classList.remove("hidden"); $("#drawer-overlay").classList.remove("hidden"); }
 function closeDrawer() { $("#drawer").classList.add("hidden"); $("#drawer-overlay").classList.add("hidden"); }
 $("#menu-toggle").onclick = openDrawer;
@@ -355,7 +362,7 @@ async function openDetail(id) {
         actions += `<button class="btn btn-ghost" onclick="openDeadlineChange(${r.id}, '${r.deadline || ""}')">📅 Sanani o'zgartirishni so'rash</button>`;
     }
     if (r.can_submit_report) {
-        actions += `<button class="btn btn-primary" onclick="openReportForm(${r.id}, '${r.type}')">Foto-hisobot topshirish</button>`;
+        actions += `<button class="btn btn-primary" onclick="openReportForm(${r.id}, '${r.type}', ${r.limit_amount || 0}, '${r.limit_type || "soft"}')">Foto-hisobot topshirish</button>`;
     }
     if (r.can_reopen) {
         actions += `<button class="btn btn-green" onclick="doReopen(${r.id})">♻️ Qayta imkon berish</button>`;
@@ -402,7 +409,7 @@ async function openDetail(id) {
         ${r.deadline ? `<div class="deadline-box ${r.overdue ? "overdue-box" : ""}">📅 Muddat: <b>${r.deadline}</b> ${r.deadline_confirmed ? '<span class="ok-tag">✅ Moliya tasdiqladi</span>' : '<span class="muted">— moliya tasdig\'i kutilmoqda</span>'} ${r.overdue ? '<span class="overdue">— muddat o\'tib ketdi!</span>' : ""}</div>` : ""}
         ${r.suggested_deadline && r.status === "deadline_dispute" ? `<div class="deadline-box overdue-box">⚠️ Moliya boshqa sana taklif qildi: <b>${r.suggested_deadline}</b> — CEO hal qilishi kerak</div>` : ""}
         ${r.estimated_amount ? `<div class="deadline-box">💵 AXO summasi: <b>${(Number(r.estimated_amount) || 0).toLocaleString("ru-RU")} ${esc(r.estimated_currency || "so'm")}</b></div>` : ""}
-        ${r.limit_amount ? `<div class="deadline-box">💰 AXO uchun limit: <b>${fmtMoney(r.limit_amount)}</b>${reportTotal(r) > r.limit_amount ? ` <span class="overdue">— hisobot limitdan ${fmtMoney(reportTotal(r) - r.limit_amount)} oshgan!</span>` : (reportTotal(r) ? ` <span class="ok-tag">✅ limit ichida</span>` : "")}</div>` : ""}
+        ${r.limit_amount ? `<div class="deadline-box">💰 AXO uchun limit: <b>${fmtMoney(r.limit_amount)}</b> ${r.limit_type === "hard" ? `<span class="ok-tag" style="background:var(--red);color:#fff">🔒 Qat'iy</span>` : `<span class="muted">🟡 yumshoq</span>`}${reportTotal(r) > r.limit_amount ? ` <span class="overdue">— hisobot limitdan ${fmtMoney(reportTotal(r) - r.limit_amount)} oshgan!</span>` : (reportTotal(r) ? ` <span class="ok-tag">✅ limit ichida</span>` : "")}</div>` : ""}
         ${r.description ? `<div class="detail-section"><h4>Izoh</h4><p>${esc(r.description)}</p>${photoHtml}</div>` : (photoHtml ? `<div class="detail-section">${photoHtml}</div>` : "")}
         ${r.estimated_category ? `<div class="deadline-box">🏷 Rasxod turi: <b>${esc(r.estimated_category)}</b></div>` : ""}
         ${reportsHtml ? `<div class="detail-section"><h4>Foto-hisobot</h4>${reportsHtml}</div>` : ""}
@@ -469,8 +476,15 @@ async function doApprove(id, setsDeadline, setsLimit, setsEstimate) {
             </div>` : ""}
         ${setsDeadline ? `<div class="field"><label>📅 Bajarilish muddati (dedline)</label><input type="date" id="ap-deadline" min="${today}" value="${today}"></div>
             <p class="muted">Muddatni belgilang. Keyingi bosqichda moliya bu sanani tasdiqlaydi yoki o'zgartirishni so'raydi.</p>` : ""}
-        ${setsLimit ? `<div class="field"><label>💰 AXO uchun xarajat limiti (so'm, ixtiyoriy)</label><input type="number" id="ap-limit" min="0" placeholder="Masalan: 1000000" autocomplete="off"></div>
-            <p class="muted">AXO bu summadan oshib xarajat qilsa, hisobotda ogohlantirish chiqadi.</p>` : ""}
+        ${setsLimit ? `<div class="field"><label>💰 AXO uchun xarajat limiti (so'm, ixtiyoriy)</label>
+                <input type="text" inputmode="numeric" id="ap-limit" placeholder="Masalan: 1 000 000" autocomplete="off" oninput="formatMoneyInput(this)"></div>
+            <div class="field"><label>Limit turi</label>
+                <select id="ap-limit-type">
+                    <option value="soft">🟡 Yumshoq — oshsa faqat ogohlantiradi (ruxsat beradi)</option>
+                    <option value="hard">🔒 Qat'iy — AXO bu summadan OSHIRA OLMAYDI</option>
+                </select>
+            </div>
+            <p class="muted">Qat'iy limitda AXO ochchotда limitdan oshsa — hisobotni topshira olmaydi.</p>` : ""}
         <div class="modal-actions">
             <button class="btn btn-ghost" onclick="closeModal()">Bekor</button>
             <button class="btn btn-green" onclick="confirmApprove(${id}, ${!!setsDeadline}, ${!!setsLimit}, ${!!setsEstimate})">Tasdiqlash</button>
@@ -483,7 +497,11 @@ async function confirmApprove(id, setsDeadline, setsLimit, setsEstimate) {
         if (!dl) { alert("Iltimos, muddatni belgilang"); return; }
         body.deadline = dl;
     }
-    if (setsLimit && $("#ap-limit") && $("#ap-limit").value) body.limit = parseFloat($("#ap-limit").value);
+    if (setsLimit) {
+        const lraw = $("#ap-limit") ? $("#ap-limit").value.replace(/\s/g, "") : "";
+        if (lraw) body.limit = parseFloat(lraw);
+        body.limit_type = $("#ap-limit-type") ? $("#ap-limit-type").value : "soft";
+    }
     if (setsEstimate) {
         const raw = $("#ap-estimate") ? $("#ap-estimate").value.replace(/\s/g, "") : "";
         if (raw) body.estimated = parseFloat(raw);
@@ -586,12 +604,17 @@ function categoryOptionsHtml() {
     });
     return html || CATEGORIES.map((c) => `<option value="${esc(c)}">${esc(c)}</option>`).join("");
 }
-function openReportForm(id, type) {
+let REPORT_LIMIT = 0, REPORT_LIMIT_TYPE = "soft";
+function openReportForm(id, type, limit, limitType) {
     REPORT_TYPE = type || "maintenance";
+    REPORT_LIMIT = Number(limit) || 0;
+    REPORT_LIMIT_TYPE = limitType || "soft";
+    const limitNote = REPORT_LIMIT ? `<div class="deadline-box ${REPORT_LIMIT_TYPE === "hard" ? "overdue-box" : ""}">${REPORT_LIMIT_TYPE === "hard" ? "🔒 Qat'iy" : "🟡"} limit: <b>${fmtMoney(REPORT_LIMIT)}</b>${REPORT_LIMIT_TYPE === "hard" ? " — bu summadan oshira olmaysiz" : " — oshsa ogohlantiriladi"}</div>` : "";
     showModal(`
         <button class="modal-close" onclick="closeModal()">&times;</button>
         <h3>Foto-hisobot topshirish</h3>
         <p class="muted">Bajarilgan ish, narxlar va rasmlarni kiriting.</p>
+        ${limitNote}
         <div class="field"><label>Izoh / bajarilgan ish</label><textarea id="rep-note" placeholder="Masalan: Pech ta'mirlandi, yangi qism o'rnatildi"></textarea></div>
         <div class="field">
             <label>Nima olindi va qancha sarflandi?</label>
@@ -600,15 +623,37 @@ function openReportForm(id, type) {
             <div id="items-container"></div>
             <button class="link-btn" onclick="addItemRow()">+ Yana qo'shish</button>
         </div>
-        <div class="field"><label>Rasmlar (bir nechta tanlash mumkin)</label><input type="file" id="rep-photos" accept="image/*" multiple></div>
+        <div class="field"><label>Rasmlar (bir nechta qo'shsa bo'ladi — tanlab, yana tanlasa qo'shiladi)</label>
+            <input type="file" id="rep-photos" accept="image/*" multiple onchange="addReportPhotos(this)">
+            <div id="rep-photo-previews" class="photo-grid" style="margin-top:8px"></div>
+        </div>
         <div class="report-total" id="rep-total">Umumiy summa: <b>0 so'm</b></div>
         <div class="modal-actions">
             <button class="btn btn-ghost" onclick="closeModal()">Bekor</button>
             <button class="btn btn-green" onclick="submitReport(${id})">Topshirish</button>
         </div>
     `);
+    REPORT_PHOTOS = [];
+    renderReportPhotos();
     addItemRow();
 }
+let REPORT_PHOTOS = [];
+async function addReportPhotos(input) {
+    for (const f of input.files) {
+        try { REPORT_PHOTOS.push(await fileToDataUrl(f)); } catch (e) {}
+    }
+    input.value = "";  // keyingi tanlashda ustiga yozib yubormasligi uchun
+    renderReportPhotos();
+}
+function renderReportPhotos() {
+    const box = $("#rep-photo-previews");
+    if (!box) return;
+    box.innerHTML = REPORT_PHOTOS.map((p, i) => `<div style="position:relative;display:inline-block;margin:2px">
+        <img src="${p}" style="width:70px;height:70px;object-fit:cover;border-radius:8px;border:1px solid var(--border)">
+        <button onclick="removeReportPhoto(${i})" title="O'chirish" style="position:absolute;top:-8px;right:-8px;width:22px;height:22px;border-radius:50%;border:none;background:var(--red);color:#fff;cursor:pointer;font-weight:bold">✕</button>
+    </div>`).join("") + (REPORT_PHOTOS.length ? `<div class="muted" style="width:100%;margin-top:4px">📷 ${REPORT_PHOTOS.length} ta rasm tanlandi</div>` : "");
+}
+function removeReportPhoto(i) { REPORT_PHOTOS.splice(i, 1); renderReportPhotos(); }
 function addItemRow() {
     const div = document.createElement("div");
     div.className = "item-row";
@@ -618,7 +663,7 @@ function addItemRow() {
         <input placeholder="Masalan: Qizdirgich" class="it-name" autocomplete="off">
         <select class="it-sup" title="Yetkazib beruvchi">${supOpts}</select>
         <input type="number" placeholder="1" class="it-qty" value="1" min="0" oninput="updateReportTotal()">
-        <input type="number" placeholder="0" class="it-price" min="0" oninput="updateReportTotal()">
+        <input type="text" inputmode="numeric" placeholder="0" class="it-price" oninput="formatMoneyInput(this); updateReportTotal()">
         <button class="link-btn" onclick="this.parentElement.remove(); updateReportTotal()">✕</button>`;
     $("#items-container").appendChild(div);
     updateReportTotal();
@@ -628,9 +673,24 @@ function updateReportTotal() {
     if (!el) return;
     let total = 0;
     document.querySelectorAll("#items-container .item-row").forEach((row) => {
-        total += (parseFloat(row.querySelector(".it-qty").value) || 0) * (parseFloat(row.querySelector(".it-price").value) || 0);
+        total += (parseFloat(row.querySelector(".it-qty").value) || 0) * (parseFloat(row.querySelector(".it-price").value.replace(/\s/g, "")) || 0);
     });
-    el.innerHTML = "Umumiy summa: <b>" + fmtMoney(total) + "</b>";
+    let extra = "";
+    const over = REPORT_LIMIT && total > REPORT_LIMIT;
+    if (over && REPORT_LIMIT_TYPE === "hard") {
+        extra = ` <span class="overdue">🔒 Qat'iy limitdan ${fmtMoney(total - REPORT_LIMIT)} oshdi — topshirib bo'lmaydi!</span>`;
+    } else if (over) {
+        extra = ` <span class="overdue">⚠️ Limitdan ${fmtMoney(total - REPORT_LIMIT)} oshdi</span>`;
+    }
+    el.innerHTML = "Umumiy summa: <b>" + fmtMoney(total) + "</b>" + extra;
+    // Qat'iy limitda topshirish tugmasini bloklaymiz
+    const btn = document.querySelector('.modal-actions .btn-green');
+    if (btn && REPORT_LIMIT_TYPE === "hard") {
+        const block = !!over;
+        btn.disabled = block;
+        btn.style.opacity = block ? "0.5" : "";
+        btn.style.cursor = block ? "not-allowed" : "";
+    }
 }
 async function submitReport(id) {
     const items = [...document.querySelectorAll("#items-container .item-row")].map((row) => ({
@@ -638,13 +698,10 @@ async function submitReport(id) {
         name: row.querySelector(".it-name").value.trim(),
         supplier: row.querySelector(".it-sup") ? row.querySelector(".it-sup").value : "",
         qty: parseFloat(row.querySelector(".it-qty").value) || 0,
-        price: parseFloat(row.querySelector(".it-price").value) || 0,
+        price: parseFloat(row.querySelector(".it-price").value.replace(/\s/g, "")) || 0,
     })).filter((i) => i.name);
-    const files = [...$("#rep-photos").files];
-    const photos = [];
-    for (const f of files) photos.push(await fileToDataUrl(f));
     const { ok, data } = await api(`/api/requests/${id}/report`, "POST", {
-        note: $("#rep-note").value, items, photos,
+        note: $("#rep-note").value, items, photos: REPORT_PHOTOS,
     });
     if (ok) { closeModal(); refreshCurrentView(); }
     else alert((data && data.error) || "Xatolik");
@@ -724,10 +781,10 @@ async function loadDashboard() {
     c.innerHTML = `
         <div class="dash-greet">${greet}, <b>${esc(ME.full_name)}</b> · <span class="muted">${esc(ME.role_label)}</span></div>
         <div class="stat-cards">
-            <div class="stat-card"><div class="stat-num">${s ? s.total : 0}</div><div class="stat-lbl">${t("total_requests")}</div></div>
-            <div class="stat-card"><div class="stat-num" style="color:var(--amber)">${s ? s.active : 0}</div><div class="stat-lbl">${t("active")}</div></div>
-            <div class="stat-card"><div class="stat-num" style="color:var(--primary)">${mine.length}</div><div class="stat-lbl">${t("need_action")}</div></div>
-            <div class="stat-card wide"><div class="stat-num" style="font-size:24px">${fmtMoney(s ? s.total_spend : 0)}</div><div class="stat-lbl">${t("total_spend")}</div></div>
+            <div class="stat-card clickable" onclick="gotoRequests('all')"><div class="stat-num">${s ? s.total : 0}</div><div class="stat-lbl">${t("total_requests")}</div></div>
+            <div class="stat-card clickable" onclick="gotoRequests('active')"><div class="stat-num" style="color:var(--amber)">${s ? s.active : 0}</div><div class="stat-lbl">${t("active")}</div></div>
+            <div class="stat-card clickable" onclick="gotoRequests('mine')"><div class="stat-num" style="color:var(--primary)">${mine.length}</div><div class="stat-lbl">${t("need_action")}</div></div>
+            <div class="stat-card wide clickable" onclick="gotoRequests('closed')"><div class="stat-num" style="font-size:24px">${fmtMoney(s ? s.total_spend : 0)}</div><div class="stat-lbl">${t("total_spend")}</div></div>
         </div>
         <div class="dash-cols">
             <div class="settings-panel">
@@ -1032,6 +1089,7 @@ async function loadAdmin() {
     if (!ud || ud.error) { $("#admin-content").innerHTML = `<p class="muted">Ruxsat yo'q.</p>`; return; }
     ROLE_MAP = ud.roles;
     const thr = (settings && settings.ceo_threshold) || 50000000;
+    const axoLim = (settings && settings.axo_open_limit) || 5;
     const usersRows = ud.users.map((u) => `
         <tr>
             <td>${esc(u.full_name)}</td>
@@ -1059,13 +1117,18 @@ async function loadAdmin() {
     $("#admin-content").innerHTML = `
         <div class="settings-grid">
             <div class="settings-panel">
-                <h3 class="panel-title">⚙️ Tasdiqlash chegarasi</h3>
-                <p class="muted" style="margin-bottom:10px">Eski (savdodagi) filiallarda texnik zayavka summasi shu chegaradan <b>oshsa</b>, AXO tasdig'idan keyin so'rov <b>CEO</b> ga ham boradi. Kichik summalar to'g'ridan Moliyaga o'tadi.</p>
-                <div style="display:flex;gap:8px;align-items:center;max-width:520px">
+                <h3 class="panel-title">⚙️ Sozlamalar</h3>
+                <p class="muted" style="margin:10px 0 6px"><b>1. CEO tasdiqlash chegarasi.</b> Eski (savdodagi) filiallarda texnik zayavka summasi shu chegaradan <b>oshsa</b>, AXO tasdig'idan keyin so'rov <b>CEO</b> ga ham boradi. Kichik summalar to'g'ridan Moliyaga o'tadi.</p>
+                <div style="display:flex;gap:8px;align-items:center;max-width:520px;margin-bottom:16px">
                     <input type="text" inputmode="numeric" id="set-threshold" value="${Number(thr).toLocaleString('ru-RU').replace(/,/g,' ')}" oninput="formatMoneyInput(this)" style="flex:1">
                     <span class="muted">so'm</span>
-                    <button class="btn btn-primary btn-sm" onclick="saveThreshold()">💾 Saqlash</button>
                 </div>
+                <p class="muted" style="margin:0 0 6px"><b>2. AXO topshirilmagan ochchot chegarasi.</b> AXO bir vaqtda shuncha topshirilmagan (yopilmagan) ochchot ushlashi mumkin. Chegaraga yetgach, yangi zayavkani qabul qila olmaydi — avval eskilarini yopishi kerak.</p>
+                <div style="display:flex;gap:8px;align-items:center;max-width:520px;margin-bottom:12px">
+                    <input type="number" min="1" id="set-axolimit" value="${axoLim}" style="width:100px">
+                    <span class="muted">ta ochchot</span>
+                </div>
+                <button class="btn btn-primary btn-sm" onclick="saveSettings()">💾 Saqlash</button>
             </div>
 
             <div class="settings-panel">
@@ -1091,11 +1154,13 @@ async function loadAdmin() {
         </div>`;
 }
 
-async function saveThreshold() {
+async function saveSettings() {
     const raw = $("#set-threshold").value.replace(/\s/g, "");
     if (!raw || isNaN(parseFloat(raw))) { alert("To'g'ri summa kiriting"); return; }
-    const { ok, data } = await api("/api/settings", "POST", { ceo_threshold: raw });
-    if (ok) { alert("✅ Chegara saqlandi: " + parseFloat(raw).toLocaleString("ru-RU") + " so'm"); }
+    const axoLim = parseInt($("#set-axolimit").value);
+    if (!axoLim || axoLim < 1) { alert("AXO ochchot chegarasi kamida 1 bo'lsin"); return; }
+    const { ok, data } = await api("/api/settings", "POST", { ceo_threshold: raw, axo_open_limit: axoLim });
+    if (ok) { alert("✅ Sozlamalar saqlandi.\nCEO chegarasi: " + parseFloat(raw).toLocaleString("ru-RU") + " so'm\nAXO ochchot chegarasi: " + axoLim + " ta"); }
     else alert((data && data.error) || "Xatolik");
 }
 async function openUserForm() {
