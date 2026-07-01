@@ -109,14 +109,14 @@ async function showApp() {
     $("#user-role").textContent = ME.role_label + (ME.branch ? " · " + ME.branch : "");
     const isAdmin = ME.role === "admin" || ME.role === "oper";
     // tugmalarni rolga qarab ko'rsatish
-    $("#new-maintenance-btn").classList.toggle("hidden", !(ME.role === "branch_manager" || ME.role === "admin"));
-    $("#new-branch-btn").classList.toggle("hidden", !(ME.role === "open_group" || ME.role === "admin"));
+    $("#new-maintenance-btn").classList.toggle("hidden", !ME.can_create_maintenance);
+    $("#new-branch-btn").classList.toggle("hidden", !ME.can_create_new_branch);
     $("#menu-admin").classList.toggle("hidden", !isAdmin);
     $("#menu-budget").classList.toggle("hidden", !["finance", "ceo", "admin", "oper"].includes(ME.role));
     $("#menu-assets").classList.toggle("hidden", ME.role === "oper");
     $("#menu-recurring").classList.toggle("hidden", !["axo", "ceo", "admin", "oper"].includes(ME.role));
     $("#menu-suppliers").classList.toggle("hidden", !["axo", "finance", "ceo", "admin", "oper"].includes(ME.role));
-    $("#bn-add").classList.toggle("hidden", !(ME.role === "branch_manager" || ME.role === "open_group" || ME.role === "admin"));
+    $("#bn-add").classList.toggle("hidden", !(ME.can_create_maintenance || ME.can_create_new_branch));
     applySettings();
     // rasxod turlari (bo'limlar bilan)
     const { data: meta } = await api("/api/meta");
@@ -652,11 +652,17 @@ $("#new-branch-btn").onclick = () => openNewForm("new_branch");
 
 async function openNewForm(type) {
     let branchField = "";
-    if (type === "new_branch" || ME.role === "admin") {
-        const { data: branches } = await api("/api/branches");
-        branchField = `<div class="field"><label>Filial ${type === "new_branch" ? "(yangi yo'nalish)" : ""}</label>
+    if (type === "maintenance") {
+        // Foydalanuvchining filial(lar)i; menejer 1 ta bo'lsa oldindan tanlangan
+        const mine = ME.my_branches || [];
+        const list = mine.length ? mine : (await api("/api/branches")).data || [];
+        branchField = `<div class="field"><label>Qaysi filial uchun?</label>
+            <select id="req-branch">${mine.length === 1 ? "" : `<option value="">— tanlang —</option>`}
+            ${list.map((b) => `<option value="${b.id}">${esc(b.name)}</option>`).join("")}</select></div>`;
+    } else if (type === "new_branch") {
+        branchField = `<div class="field"><label>Filial (ixtiyoriy, mavjud yo'nalish)</label>
             <select id="req-branch"><option value="">— tanlanmagan —</option>
-            ${(branches || []).map((b) => `<option value="${b.id}">${esc(b.name)}</option>`).join("")}</select></div>`;
+            ${((await api("/api/branches")).data || []).map((b) => `<option value="${b.id}">${esc(b.name)}</option>`).join("")}</select></div>`;
     }
     const title = type === "new_branch" ? "Yangi filial so'rovi" : "Yangi texnik zayavka";
     const titlePh = type === "new_branch" ? "Masalan: Sergeli-2 filialini ochish" : "Masalan: Pechim buzildi";
@@ -1037,7 +1043,7 @@ async function loadAdmin() {
     const branchCard = (b) => `
         <div class="branch-card ${b.status === "construction" ? "bc-construction" : "bc-active"}">
             <div class="bc-name">${esc(b.name)}</div>
-            <div class="bc-status">${b.status === "construction" ? "🏗 Qurilish jarayonida" : "🟢 Faol (savdoda)"}</div>
+            <div class="bc-status">${b.status === "construction" ? "🏗 Qurilish jarayonida" : "🟢 Faol (savdoda)"}${b.regmen ? " · 👤 " + esc(b.regmen) : ""}</div>
             <div class="bc-actions">
                 ${b.status === "construction" && canActivate ? `<button class="btn btn-green btn-sm" onclick="activateBranch(${b.id})">✅ Qurildi — tasdiqlash</button>` : ""}
                 <button class="link-btn" style="color:var(--red)" onclick="deleteBranch(${b.id})">O'chirish</button>
@@ -1092,17 +1098,22 @@ async function openUserForm() {
             <button class="btn btn-primary" onclick="submitUser()">💾 Saqlash</button>
         </div>`);
 }
-function openBranchForm() {
+async function openBranchForm() {
+    const { data: ud } = await api("/api/users");
+    const regmens = ((ud && ud.users) || []).filter((u) => u.role === "regmen");
+    const regOpts = regmens.map((r) => `<option value="${r.id}">${esc(r.full_name)}</option>`).join("");
     showModal(`
         <button class="modal-close" onclick="closeModal()">&times;</button>
         <h3>Yangi filial</h3>
-        <div class="field"><label>Filial nomi</label><input id="b-name" autocomplete="off" placeholder="Masalan: Olmazor"></div>
+        <div class="field"><label>Filial nomi</label><input id="b-name" autocomplete="off" placeholder="Masalan: Zahratun fast-food (... filiali)"></div>
         <div class="field"><label>Holati</label>
             <select id="b-status">
-                <option value="active">🟢 Faol (savdoda)</option>
-                <option value="construction">🏗 Qurilish jarayonida</option>
+                <option value="active">🟢 Faol / qurilgan (savdoda)</option>
+                <option value="construction">🏗 Qurilish jarayonida (yangi)</option>
             </select>
         </div>
+        <div class="field"><label>Regional menejer (Regmen)</label>
+            <select id="b-regmen"><option value="">— tanlanmagan —</option>${regOpts}</select></div>
         <div class="modal-actions">
             <button class="btn btn-ghost" onclick="closeModal()">Bekor</button>
             <button class="btn btn-primary" onclick="submitBranch()">💾 Saqlash</button>
@@ -1111,7 +1122,9 @@ function openBranchForm() {
 async function submitBranch() {
     const name = $("#b-name").value.trim();
     if (!name) { alert("Filial nomini kiriting"); return; }
-    const { ok, data } = await api("/api/branches", "POST", { name, status: $("#b-status").value });
+    const body = { name, status: $("#b-status").value };
+    const rg = $("#b-regmen").value; if (rg) body.regmen_id = parseInt(rg);
+    const { ok, data } = await api("/api/branches", "POST", body);
     if (ok) { closeModal(); loadAdmin(); }
     else alert((data && data.error) || "Xatolik");
 }

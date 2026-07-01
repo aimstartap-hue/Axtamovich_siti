@@ -221,6 +221,11 @@ def init_db():
             text TEXT NOT NULL,
             created_at TEXT NOT NULL
         );
+        CREATE TABLE IF NOT EXISTS user_branches (
+            user_id INTEGER NOT NULL REFERENCES users(id),
+            branch_id INTEGER NOT NULL REFERENCES branches(id),
+            UNIQUE(user_id, branch_id)
+        );
         CREATE TABLE IF NOT EXISTS budgets (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             branch_id INTEGER NOT NULL REFERENCES branches(id),
@@ -280,37 +285,77 @@ def init_db():
     add_col("report_items", "category", "TEXT")
     add_col("report_items", "supplier", "TEXT")
     add_col("branches", "status", "TEXT DEFAULT 'active'")
+    add_col("branches", "regmen_id", "INTEGER")
     conn.commit()
 
-    # Seed (faqat bo'sh bo'lsa)
+    # Seed (faqat bo'sh bo'lsa) — HAQIQIY MA'LUMOTLAR (Zahratun fast-food tarmog'i)
     if c.execute("SELECT COUNT(*) FROM users").fetchone()[0] == 0:
-        branches = [("Chilonzor", "active"), ("Yunusobod", "active"),
-                    ("Sergeli", "active"), ("Sergeli-2 (qurilishda)", "construction")]
-        for name, st in branches:
-            c.execute("INSERT INTO branches(name,status) VALUES(?,?)", (name, st))
-        conn.commit()
-        chilonzor = c.execute(
-            "SELECT id FROM branches WHERE name='Chilonzor'"
-        ).fetchone()[0]
-
-        seed_users = [
-            ("admin", "admin123", "admin", "Administrator", None),
-            ("oper", "oper123", "oper", "Operator (sozlamalar)", None),
-            ("manager1", "123", "branch_manager", "Aziz (Chilonzor menejeri)", chilonzor),
-            ("regmen1", "123", "regmen", "Kamol (Regional menejer)", None),
-            ("axo1", "123", "axo", "Bekzod (AXO)", None),
-            ("finance1", "123", "finance", "Dilnoza (Moliya)", None),
-            ("ceo1", "123", "ceo", "Jamshid (CEO)", None),
-            ("ops1", "123", "ops_director", "Sardor (Operatsion direktor)", None),
-            ("open1", "123", "open_group", "Otabek (Open group rahbari)", None),
-            ("hr1", "123", "hr", "Nodira (HR)", None),
-        ]
-        for username, pw, role, name, br in seed_users:
-            ph, salt = hash_password(pw)
-            c.execute(
+        def mkuser(login, role, full_name, branch_id=None):
+            ph, salt = hash_password("123")
+            cur = c.execute(
                 "INSERT INTO users(username,password_hash,salt,role,full_name,branch_id) VALUES(?,?,?,?,?,?)",
-                (username, ph, salt, role, name, br),
-            )
+                (login, ph, salt, role, full_name, branch_id))
+            return cur.lastrowid
+
+        # 1) Regmenlar (avval — filialga biriktirish uchun)
+        reg_id = {
+            "muhammadov": mkuser("muhammadov", "regmen", "Muhammadov Oxunjon Farhodovich"),
+            "fayzullayev": mkuser("fayzullayev", "regmen", "Fayzullayev Jamshid Nurmuhammadovich"),
+            "temirov": mkuser("temirov", "regmen", "Temirov Islom"),
+        }
+
+        # 2) Filiallar: (nom, status, regmen)
+        Z = "Zahratun fast-food"
+        branch_list = [
+            (f"{Z} (6-kichik nohiya)", "active", "muhammadov"),
+            (f"{Z} (7-kichik nohiya)", "active", "muhammadov"),
+            (f"{Z} (Buxoro Savdo Majmuasi)", "active", "muhammadov"),
+            (f"{Z} (Gijduvon filiali)", "active", "muhammadov"),
+            (f"{Z} (Jondor filiali)", "active", "muhammadov"),
+            (f"{Z} (Jondor-2 filiali)", "active", "muhammadov"),
+            (f"{Z} (Olot filiali)", "active", "muhammadov"),
+            (f"{Z} (Pasquale)", "active", "muhammadov"),
+            (f"{Z} (Peshku filiali)", "active", "muhammadov"),
+            (f"{Z} (Qorako'l filiali)", "active", "muhammadov"),
+            (f"{Z} (Shofirkon filiali)", "active", "muhammadov"),
+            (f"{Z} (Vobkent filiali)", "active", "muhammadov"),
+            (f"{Z} (Qorako'l-2 filiali)", "active", "muhammadov"),
+            ("Sex Zahratun (ishlab chiqarish)", "active", "temirov"),
+            (f"{Z} (Muborak filiali)", "active", "fayzullayev"),
+            (f"{Z} (G'uzor filiali)", "active", "fayzullayev"),
+            (f"{Z} (Koson filiali)", "active", "fayzullayev"),
+            (f"{Z} (Peshku-2 filiali)", "active", "fayzullayev"),
+            (f"{Z} (Qiziltepa filiali)", "construction", "fayzullayev"),
+        ]
+        br_id = {}
+        for name, status, rl in branch_list:
+            cur = c.execute("INSERT INTO branches(name,status,regmen_id) VALUES(?,?,?)",
+                            (name, status, reg_id[rl]))
+            br_id[name] = cur.lastrowid
+
+        # 3) Filial menejerlari: (login, ism, [filiallar])
+        managers = [
+            ("nohiya6", "Asadov Azizbek Baxtiyorovich", [f"{Z} (6-kichik nohiya)"]),
+            ("nohiya7", "Soibov Murodjon Farhod o'g'li", [f"{Z} (7-kichik nohiya)"]),
+            ("gijduvon", "Amonov Madiyor Davron o'g'li", [f"{Z} (Gijduvon filiali)", f"{Z} (Shofirkon filiali)"]),
+            ("olot", "Og'ayev Azizjon G'aybullayevich", [f"{Z} (Olot filiali)"]),
+            ("qorakol", "Raximov Jahongir Gofur o'g'li", [f"{Z} (Qorako'l filiali)", f"{Z} (Qorako'l-2 filiali)"]),
+            ("vobkent", "Barotov Burxon Barno o'g'li", [f"{Z} (Vobkent filiali)"]),
+            ("sex", "Navro'zov Husen", ["Sex Zahratun (ishlab chiqarish)"]),
+        ]
+        for login, fname, bnames in managers:
+            uid = mkuser(login, "branch_manager", fname, br_id[bnames[0]])
+            for bn in bnames:
+                c.execute("INSERT INTO user_branches(user_id,branch_id) VALUES(?,?)", (uid, br_id[bn]))
+
+        # 4) Markaziy xodimlar
+        mkuser("axo", "axo", "Aminov Husniddin Botir o'g'li")
+        mkuser("moliya", "finance", "Ikromov Shaxzod Axtam o'g'li")
+        mkuser("ceo", "ceo", "Ganjiyev Uchqun Nizomovich")
+        mkuser("hr", "hr", "Xodjayev O'tkir O'ktam o'g'li")
+        mkuser("opengroup", "open_group", "Nazarov Nizomjon")
+        mkuser("admin", "admin", "Administrator")
+        mkuser("oper", "oper", "Operator (sozlamalar)")
         conn.commit()
     conn.close()
 
@@ -523,15 +568,39 @@ def notify_change(conn, rid, new_status, actor_id, creator_id, action_text):
         add_notification(conn, uid, rid, text)
 
 
-def can_view(request, user):
+def user_branch_ids(conn, uid):
+    """Foydalanuvchiga biriktirilgan filiallar (ko'p bo'lishi mumkin)."""
+    rows = conn.execute("SELECT branch_id FROM user_branches WHERE user_id=?", (uid,)).fetchall()
+    return {r["branch_id"] for r in rows}
+
+
+def regmen_branch_ids(conn, uid):
+    """Regmenga biriktirilgan filiallar."""
+    rows = conn.execute("SELECT id FROM branches WHERE regmen_id=?", (uid,)).fetchall()
+    return {r["id"] for r in rows}
+
+
+def can_view(request, user, conn=None):
     """Foydalanuvchi shu zayavkani ko'ra oladimi?"""
     role = user["role"]
-    # Filial menejeri faqat o'z filiali zayavkalarini ko'radi
+    # Filial menejeri faqat o'z filial(lar)i zayavkalarini ko'radi (bir nechta bo'lishi mumkin)
     if role == "branch_manager":
-        return request["branch_id"] == user["branch_id"] or request["created_by"] == user["id"]
-    # Regional menejer — barcha filiallarning texnik zayavkalari
+        if request["created_by"] == user["id"]:
+            return True
+        if conn is not None:
+            allowed = user_branch_ids(conn, user["id"])
+            if allowed:
+                return request["branch_id"] in allowed
+        return request["branch_id"] == user["branch_id"]
+    # Regional menejer — faqat o'ziga biriktirilgan filiallarning texnik zayavkalari
     if role == "regmen":
-        return request["type"] == "maintenance"
+        if request["type"] != "maintenance":
+            return False
+        if request["created_by"] == user["id"]:
+            return True
+        if conn is not None:
+            return request["branch_id"] in regmen_branch_ids(conn, user["id"])
+        return True
     # AXO faqat texnik zayavkalarni ko'radi (Open group ma'lumotlari ko'rinmaydi)
     if role == "axo":
         return request["type"] == "maintenance"
@@ -770,7 +839,7 @@ class Handler(BaseHTTPRequestHandler):
 
         if path == "/api/export/requests.csv":
             conn = db()
-            reqs = [r for r in conn.execute("SELECT * FROM requests ORDER BY id").fetchall() if can_view(r, user)]
+            reqs = [r for r in conn.execute("SELECT * FROM requests ORDER BY id").fetchall() if can_view(r, user, conn)]
             rows = [["#", "Tur", "Sarlavha", "Filial", "Yaratdi", "Holat", "Muddat", "AXO limiti", "Yaratilgan"]]
             for r in reqs:
                 br = conn.execute("SELECT name FROM branches WHERE id=?", (r["branch_id"],)).fetchone() if r["branch_id"] else None
@@ -784,7 +853,7 @@ class Handler(BaseHTTPRequestHandler):
 
         if path == "/api/export/expenses.csv":
             conn = db()
-            visible = {r["id"] for r in conn.execute("SELECT * FROM requests").fetchall() if can_view(r, user)}
+            visible = {r["id"] for r in conn.execute("SELECT * FROM requests").fetchall() if can_view(r, user, conn)}
             data = conn.execute(
                 "SELECT ri.*, rp.request_id, rp.created_at AS rdate, req.title, req.branch_id "
                 "FROM report_items ri JOIN reports rp ON rp.id=ri.report_id "
@@ -878,7 +947,7 @@ class Handler(BaseHTTPRequestHandler):
         if path == "/api/kpi":
             conn = db()
             all_reqs = conn.execute("SELECT * FROM requests").fetchall()
-            reqs = [r for r in all_reqs if can_view(r, user)]
+            reqs = [r for r in all_reqs if can_view(r, user, conn)]
             closed = [r for r in reqs if r["status"] == "closed"]
 
             def last_event_time(rid):
@@ -958,16 +1027,20 @@ class Handler(BaseHTTPRequestHandler):
 
         conn = db()
         if path == "/api/branches":
-            rows = conn.execute("SELECT * FROM branches ORDER BY status DESC, name").fetchall()
+            rows = conn.execute(
+                "SELECT b.*, u.full_name AS regmen_name FROM branches b "
+                "LEFT JOIN users u ON u.id=b.regmen_id ORDER BY b.status DESC, b.name"
+            ).fetchall()
             conn.close()
-            return self.send_json([{"id": r["id"], "name": r["name"], "status": r["status"]} for r in rows])
+            return self.send_json([{"id": r["id"], "name": r["name"], "status": r["status"],
+                                    "regmen_id": r["regmen_id"], "regmen": r["regmen_name"] or ""} for r in rows])
 
         if path == "/api/requests":
             process_due(conn)   # profilaktika + eskalatsiya
             rows = conn.execute("SELECT * FROM requests ORDER BY id DESC").fetchall()
             out = []
             for r in rows:
-                if not can_view(r, user):
+                if not can_view(r, user, conn):
                     continue
                 d = request_to_dict(conn, r)
                 d["needs_my_action"] = needs_action(r, user["role"])
@@ -996,7 +1069,7 @@ class Handler(BaseHTTPRequestHandler):
         if path == "/api/stats":
             # Faqat foydalanuvchi ko'ra oladigan zayavkalar bo'yicha
             all_reqs = conn.execute("SELECT * FROM requests").fetchall()
-            reqs = [r for r in all_reqs if can_view(r, user)]
+            reqs = [r for r in all_reqs if can_view(r, user, conn)]
             visible_ids = {r["id"] for r in reqs}
             status_counts, type_counts = {}, {"maintenance": 0, "new_branch": 0}
             for r in reqs:
@@ -1057,7 +1130,7 @@ class Handler(BaseHTTPRequestHandler):
             if not r:
                 conn.close()
                 return self.send_json({"error": "Topilmadi"}, 404)
-            if not can_view(r, user):
+            if not can_view(r, user, conn):
                 conn.close()
                 return self.send_json({"error": "Bu ma'lumotni ko'rish huquqingiz yo'q"}, 403)
             d = request_to_dict(conn, r, full=True)
@@ -1198,10 +1271,12 @@ class Handler(BaseHTTPRequestHandler):
             return self.send_json({"error": "Sarlavha kiritilmadi"}, 400)
 
         if rtype == "maintenance":
-            if user["role"] not in ("branch_manager", "admin"):
-                return self.send_json({"error": "Bu turdagi zayavkani faqat filial menejeri ochadi"}, 403)
+            # Filial menejeri, AXO, Regmen va Open group ham to'g'ridan-to'g'ri zayavka bera oladi
+            if user["role"] not in ("branch_manager", "axo", "regmen", "open_group", "admin"):
+                return self.send_json({"error": "Bu turdagi zayavkani ocholmaysiz"}, 403)
             status = start_status("maintenance")   # pending_axo
-            branch_id = user["branch_id"] or data.get("branch_id")
+            # Filialni tanlaydi; menejer bo'lsa va tanlamasa — o'z (asosiy) filiali
+            branch_id = data.get("branch_id") or user["branch_id"]
         elif rtype == "new_branch":
             if user["role"] not in ("open_group", "admin"):
                 return self.send_json({"error": "Bu turdagi so'rovni faqat Open group rahbari ochadi"}, 403)
@@ -1499,7 +1574,7 @@ class Handler(BaseHTTPRequestHandler):
         if not r:
             conn.close()
             return self.send_json({"error": "Topilmadi"}, 404)
-        if not can_view(r, user):
+        if not can_view(r, user, conn):
             conn.close()
             return self.send_json({"error": "Huquq yo'q"}, 403)
         conn.execute(
@@ -1636,10 +1711,19 @@ class Handler(BaseHTTPRequestHandler):
                 except (TypeError, ValueError):
                     bid = None
                 ph, salt = hash_password(pw)
-                conn.execute(
+                cur = conn.execute(
                     "INSERT INTO users(username,password_hash,salt,role,full_name,branch_id) VALUES(?,?,?,?,?,?)",
                     (username, ph, salt, role, full_name, bid),
                 )
+                # Filial menejeri uchun user_branches ham (bir yoki bir nechta filial)
+                if role == "branch_manager":
+                    bids = data.get("branch_ids") or ([bid] if bid else [])
+                    for b in bids:
+                        try:
+                            conn.execute("INSERT OR IGNORE INTO user_branches(user_id,branch_id) VALUES(?,?)",
+                                         (cur.lastrowid, int(b)))
+                        except (TypeError, ValueError):
+                            pass
                 conn.commit()
                 return self.send_json({"ok": True})
 
@@ -1674,7 +1758,12 @@ class Handler(BaseHTTPRequestHandler):
                     return self.send_json({"error": "Nom kiritilmadi"}, 400)
                 if conn.execute("SELECT 1 FROM branches WHERE name=?", (name,)).fetchone():
                     return self.send_json({"error": "Bu filial allaqachon bor"}, 400)
-                conn.execute("INSERT INTO branches(name,status) VALUES(?,?)", (name, status))
+                rid = data.get("regmen_id")
+                try:
+                    rid = int(rid)
+                except (TypeError, ValueError):
+                    rid = None
+                conn.execute("INSERT INTO branches(name,status,regmen_id) VALUES(?,?,?)", (name, status, rid))
                 conn.commit()
                 return self.send_json({"ok": True})
 
@@ -1707,6 +1796,23 @@ class Handler(BaseHTTPRequestHandler):
         if u["branch_id"]:
             b = conn.execute("SELECT name FROM branches WHERE id=?", (u["branch_id"],)).fetchone()
             branch = b["name"] if b else None
+        # Zayavka ochish uchun ruxsat etilgan filiallar
+        role = u["role"]
+        if role == "branch_manager":
+            ids = user_branch_ids(conn, u["id"]) or ({u["branch_id"]} if u["branch_id"] else set())
+            rows = conn.execute(
+                f"SELECT id,name FROM branches WHERE id IN ({','.join('?'*len(ids)) or 'NULL'})", tuple(ids)
+            ).fetchall() if ids else []
+        elif role == "regmen":
+            rows = conn.execute("SELECT id,name FROM branches WHERE regmen_id=? ORDER BY name", (u["id"],)).fetchall()
+        elif role in ("axo", "admin", "open_group"):
+            rows = conn.execute("SELECT id,name FROM branches ORDER BY status DESC, name").fetchall()
+        else:
+            rows = []
+        my_branches = [{"id": r["id"], "name": r["name"]} for r in rows]
+        # ko'p filialli menejer nomi
+        if role == "branch_manager" and len(my_branches) > 1:
+            branch = ", ".join(b["name"].replace("Zahratun fast-food ", "") for b in my_branches)
         conn.close()
         return {
             "id": u["id"],
@@ -1715,6 +1821,9 @@ class Handler(BaseHTTPRequestHandler):
             "role": u["role"],
             "role_label": ROLES.get(u["role"], u["role"]),
             "branch": branch,
+            "my_branches": my_branches,
+            "can_create_maintenance": role in ("branch_manager", "axo", "regmen", "open_group", "admin"),
+            "can_create_new_branch": role in ("open_group", "admin"),
         }
 
 
