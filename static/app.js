@@ -72,6 +72,7 @@ function refreshCurrentView() {
     else if (CURRENT_VIEW === "stats") loadStats();
     else if (CURRENT_VIEW === "admin") loadAdmin();
     else if (CURRENT_VIEW === "dashboard") loadDashboard();
+    if (typeof loadNotifications === "function" && ME) loadNotifications();  // bildirishnomani ham yangilash
 }
 
 const $ = (s) => document.querySelector(s);
@@ -275,9 +276,14 @@ async function loadRequests() {
     // tur bo'yicha filtr (menyu)
     if (TYPE_FILTER !== "all") items = items.filter((r) => r.type === TYPE_FILTER);
 
+    const pendingStatuses = ["pending_axo", "pending_ceo", "pending_finance", "deadline_dispute"];
+    const approvedStatuses = ["approved", "funded", "report_submitted", "closed"];
     if (CURRENT_FILTER === "mine") items = items.filter((r) => r.needs_my_action);
     if (CURRENT_FILTER === "active") items = items.filter((r) => !["closed", "rejected"].includes(r.status));
-    if (CURRENT_FILTER === "closed") items = items.filter((r) => ["closed", "rejected"].includes(r.status));
+    if (CURRENT_FILTER === "pending") items = items.filter((r) => pendingStatuses.includes(r.status));
+    if (CURRENT_FILTER === "approved") items = items.filter((r) => approvedStatuses.includes(r.status));
+    if (CURRENT_FILTER === "rejected") items = items.filter((r) => ["rejected", "hr_review"].includes(r.status));
+    if (CURRENT_FILTER === "closed") items = items.filter((r) => r.status === "closed");
 
     // qidiruv
     const q = ($("#search-box") ? $("#search-box").value : "").trim().toLowerCase();
@@ -306,7 +312,7 @@ function cardHtml(r) {
     const actionTag = r.needs_my_action ? `<span class="action-tag">⚡ Siz harakat qiling</span>` : "";
     const escTag = r.escalated ? `<span class="action-tag" style="color:var(--red)">⚠️ Eskalatsiya</span>` : "";
     return `
-    <div class="card ${r.needs_my_action ? "card-action" : ""}" data-id="${r.id}">
+    <div class="card ${r.needs_my_action ? "card-action" : ""}" data-id="${r.id}" data-type="${r.type}">
         <div class="card-head">
             <div>
                 <span class="type-tag type-${r.type}">${typeLabel}</span> ${actionTag} ${escTag}
@@ -435,7 +441,14 @@ async function sendComment(id) {
     else alert((data && data.error) || "Xatolik");
 }
 
-function doApprove(id, setsDeadline, setsLimit) {
+async function doApprove(id, setsDeadline, setsLimit) {
+    // Muddat/limit kerak bo'lmasa — bir bosishda, ortiqcha izoh so'ramasdan tasdiqlaydi
+    if (!setsDeadline && !setsLimit) {
+        const { ok, data } = await api(`/api/requests/${id}/approve`, "POST", {});
+        if (ok) { closeModal(); refreshCurrentView(); }
+        else alert((data && data.error) || "Xatolik");
+        return;
+    }
     const today = new Date().toISOString().slice(0, 10);
     showModal(`
         <button class="modal-close" onclick="closeModal()">&times;</button>
@@ -571,6 +584,7 @@ function openReportForm(id, type) {
             <button class="link-btn" onclick="addItemRow()">+ Yana qo'shish</button>
         </div>
         <div class="field"><label>Rasmlar (bir nechta tanlash mumkin)</label><input type="file" id="rep-photos" accept="image/*" multiple></div>
+        <div class="report-total" id="rep-total">Umumiy summa: <b>0 so'm</b></div>
         <div class="modal-actions">
             <button class="btn btn-ghost" onclick="closeModal()">Bekor</button>
             <button class="btn btn-green" onclick="submitReport(${id})">Topshirish</button>
@@ -586,10 +600,20 @@ function addItemRow() {
         <select class="it-cat">${categoryOptionsHtml()}</select>
         <input placeholder="Masalan: Qizdirgich" class="it-name" autocomplete="off">
         <select class="it-sup" title="Yetkazib beruvchi">${supOpts}</select>
-        <input type="number" placeholder="1" class="it-qty" value="1" min="0">
-        <input type="number" placeholder="0" class="it-price" min="0">
-        <button class="link-btn" onclick="this.parentElement.remove()">✕</button>`;
+        <input type="number" placeholder="1" class="it-qty" value="1" min="0" oninput="updateReportTotal()">
+        <input type="number" placeholder="0" class="it-price" min="0" oninput="updateReportTotal()">
+        <button class="link-btn" onclick="this.parentElement.remove(); updateReportTotal()">✕</button>`;
     $("#items-container").appendChild(div);
+    updateReportTotal();
+}
+function updateReportTotal() {
+    const el = $("#rep-total");
+    if (!el) return;
+    let total = 0;
+    document.querySelectorAll("#items-container .item-row").forEach((row) => {
+        total += (parseFloat(row.querySelector(".it-qty").value) || 0) * (parseFloat(row.querySelector(".it-price").value) || 0);
+    });
+    el.innerHTML = "Umumiy summa: <b>" + fmtMoney(total) + "</b>";
 }
 async function submitReport(id) {
     const items = [...document.querySelectorAll("#items-container .item-row")].map((row) => ({

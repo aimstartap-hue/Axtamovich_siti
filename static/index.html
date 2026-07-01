@@ -4,7 +4,7 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
     <title>AXO-OPEN group</title>
-    <link rel="stylesheet" href="/static/style.css">
+    <link rel="stylesheet" href="/static/style.css?v=4">
     <link rel="manifest" href="/manifest.json">
     <meta name="theme-color" content="#0f1117">
     <meta name="mobile-web-app-capable" content="yes">
@@ -126,7 +126,9 @@
                 <div class="filters">
                     <button class="chip active" data-filter="all" data-i18n="f_all">Hammasi</button>
                     <button class="chip" data-filter="mine" data-i18n="f_mine">⚡ Menga kerak</button>
-                    <button class="chip" data-filter="active" data-i18n="f_active">Faol</button>
+                    <button class="chip" data-filter="pending">⏳ Kutilmoqda</button>
+                    <button class="chip" data-filter="approved">✅ Tasdiqlangan</button>
+                    <button class="chip" data-filter="rejected">❌ Rad etilgan</button>
                     <button class="chip" data-filter="closed" data-i18n="f_closed">Yopilgan</button>
                 </div>
                 <div id="requests-list" class="cards"></div>
@@ -186,6 +188,6 @@
     <!-- O'rnatish taklifi (PWA) -->
     <button id="install-btn" class="install-btn hidden">⬇️ Ilovani o'rnatish</button>
 
-    <script src="/static/app.js"></script>
+    <script src="/static/app.js?v=4"></script>
 </body>
 </html>
