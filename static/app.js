@@ -22,7 +22,7 @@ const I18N = {
         demo_logins: "Sinov uchun loginlar",
         appearance: "Ko'rinish sozlamalari", language: "Til", theme: "Mavzu",
         dark: "Qora", light: "Oq", accent: "Asosiy rang",
-        dashboard: "Boshqaruv paneli", all_requests: "Barcha zayavkalar",
+        dashboard: "Boshqaruv paneli", all_requests: "Zayavkalar",
         maintenance_requests: "🔧 Texnik zayavkalar", new_branch_requests: "🏗 Yangi filial so'rovlari",
         reports: "📈 Hisobot va analitika", settings: "Sozlamalar",
         reports_title: "Hisobot va analitika",
@@ -38,7 +38,7 @@ const I18N = {
         demo_logins: "Тестовые логины",
         appearance: "Настройки внешнего вида", language: "Язык", theme: "Тема",
         dark: "Тёмная", light: "Светлая", accent: "Основной цвет",
-        dashboard: "Панель управления", all_requests: "Все заявки",
+        dashboard: "Панель управления", all_requests: "Заявки",
         maintenance_requests: "🔧 Технические заявки", new_branch_requests: "🏗 Заявки на новый филиал",
         reports: "📈 Отчёты и аналитика", settings: "Настройки",
         reports_title: "Отчёты и аналитика",
@@ -401,7 +401,7 @@ async function openDetail(id) {
         </div>
         ${r.deadline ? `<div class="deadline-box ${r.overdue ? "overdue-box" : ""}">📅 Muddat: <b>${r.deadline}</b> ${r.deadline_confirmed ? '<span class="ok-tag">✅ Moliya tasdiqladi</span>' : '<span class="muted">— moliya tasdig\'i kutilmoqda</span>'} ${r.overdue ? '<span class="overdue">— muddat o\'tib ketdi!</span>' : ""}</div>` : ""}
         ${r.suggested_deadline && r.status === "deadline_dispute" ? `<div class="deadline-box overdue-box">⚠️ Moliya boshqa sana taklif qildi: <b>${r.suggested_deadline}</b> — CEO hal qilishi kerak</div>` : ""}
-        ${r.estimated_amount ? `<div class="deadline-box">💵 AXO taxminiy summasi: <b>${fmtMoney(r.estimated_amount)}</b></div>` : ""}
+        ${r.estimated_amount ? `<div class="deadline-box">💵 AXO taxminiy summasi: <b>${(Number(r.estimated_amount) || 0).toLocaleString("ru-RU")} ${esc(r.estimated_currency || "so'm")}</b></div>` : ""}
         ${r.limit_amount ? `<div class="deadline-box">💰 AXO uchun limit: <b>${fmtMoney(r.limit_amount)}</b>${reportTotal(r) > r.limit_amount ? ` <span class="overdue">— hisobot limitdan ${fmtMoney(reportTotal(r) - r.limit_amount)} oshgan!</span>` : (reportTotal(r) ? ` <span class="ok-tag">✅ limit ichida</span>` : "")}</div>` : ""}
         ${r.description ? `<div class="detail-section"><h4>Izoh</h4><p>${esc(r.description)}</p>${photoHtml}</div>` : (photoHtml ? `<div class="detail-section">${photoHtml}</div>` : "")}
         ${reportsHtml ? `<div class="detail-section"><h4>Foto-hisobot</h4>${reportsHtml}</div>` : ""}
@@ -454,8 +454,17 @@ async function doApprove(id, setsDeadline, setsLimit, setsEstimate) {
     showModal(`
         <button class="modal-close" onclick="closeModal()">&times;</button>
         <h3>Tasdiqlash</h3>
-        ${setsEstimate ? `<div class="field"><label>💵 Taxminiy summa (narx, so'm)</label><input type="number" id="ap-estimate" min="0" placeholder="Masalan: 500000" autocomplete="off"></div>
-            <p class="muted">Ishning taxminiy narxini yozing — CEO va Moliya shu asosda qaror qiladi.</p>` : ""}
+        ${setsEstimate ? `<div class="field"><label>💵 Taxminiy summa (narx)</label>
+            <div style="display:flex;gap:8px">
+                <input type="number" id="ap-estimate" min="0" placeholder="Masalan: 500000" autocomplete="off" style="flex:1">
+                <select id="ap-currency" style="width:110px">
+                    <option value="so'm">so'm</option>
+                    <option value="USD">USD $</option>
+                    <option value="EUR">EUR €</option>
+                    <option value="RUB">RUB ₽</option>
+                </select>
+            </div></div>
+            <p class="muted">Ishning taxminiy narxini va valyutasini tanlang — CEO va Moliya shu asosda qaror qiladi.</p>` : ""}
         ${setsDeadline ? `<div class="field"><label>📅 Bajarilish muddati (dedline)</label><input type="date" id="ap-deadline" min="${today}" value="${today}"></div>
             <p class="muted">Muddatni belgilang. Keyingi bosqichda moliya bu sanani tasdiqlaydi yoki o'zgartirishni so'raydi.</p>` : ""}
         ${setsLimit ? `<div class="field"><label>💰 AXO uchun xarajat limiti (so'm, ixtiyoriy)</label><input type="number" id="ap-limit" min="0" placeholder="Masalan: 1000000" autocomplete="off"></div>
@@ -473,7 +482,10 @@ async function confirmApprove(id, setsDeadline, setsLimit, setsEstimate) {
         body.deadline = dl;
     }
     if (setsLimit && $("#ap-limit") && $("#ap-limit").value) body.limit = parseFloat($("#ap-limit").value);
-    if (setsEstimate && $("#ap-estimate") && $("#ap-estimate").value) body.estimated = parseFloat($("#ap-estimate").value);
+    if (setsEstimate && $("#ap-estimate") && $("#ap-estimate").value) {
+        body.estimated = parseFloat($("#ap-estimate").value);
+        body.currency = $("#ap-currency") ? $("#ap-currency").value : "so'm";
+    }
     const { ok, data } = await api(`/api/requests/${id}/approve`, "POST", body);
     if (ok) { closeModal(); refreshCurrentView(); }
     else alert((data && data.error) || "Xatolik");

@@ -275,6 +275,7 @@ def init_db():
     add_col("requests", "deadline_disputed", "INTEGER DEFAULT 0")
     add_col("requests", "limit_amount", "REAL")
     add_col("requests", "estimated_amount", "REAL")
+    add_col("requests", "estimated_currency", "TEXT DEFAULT 'so''m'")
     add_col("requests", "escalated", "INTEGER DEFAULT 0")
     add_col("report_items", "category", "TEXT")
     add_col("report_items", "supplier", "TEXT")
@@ -608,6 +609,7 @@ def request_to_dict(conn, r, full=False):
         "suggested_deadline": r["suggested_deadline"],
         "limit_amount": r["limit_amount"],
         "estimated_amount": r["estimated_amount"],
+        "estimated_currency": r["estimated_currency"] or "so'm",
         "overdue": bool(r["deadline"] and r["status"] not in ("closed", "rejected")
                         and r["deadline"] < datetime.now().strftime("%Y-%m-%d")),
         "escalated": bool(r["escalated"]),
@@ -711,6 +713,11 @@ class Handler(BaseHTTPRequestHandler):
         self.send_response(200)
         self.send_header("Content-Type", content_type)
         self.send_header("Content-Length", str(len(data)))
+        # Keshni o'chirish — har doim eng yangi HTML/CSS/JS yuklanadi (uploads bundan mustasno)
+        if "/uploads/" not in path.replace("\\", "/"):
+            self.send_header("Cache-Control", "no-cache, no-store, must-revalidate")
+            self.send_header("Pragma", "no-cache")
+            self.send_header("Expires", "0")
         self.end_headers()
         self.wfile.write(data)
 
@@ -1265,9 +1272,11 @@ class Handler(BaseHTTPRequestHandler):
                 est = float(est) if est not in (None, "") else None
             except (TypeError, ValueError):
                 est = None
-            conn.execute("UPDATE requests SET status=?, estimated_amount=? WHERE id=?", (new_status, est, rid))
+            cur = (data.get("currency") or "so'm").strip() or "so'm"
+            conn.execute("UPDATE requests SET status=?, estimated_amount=?, estimated_currency=? WHERE id=?",
+                         (new_status, est, cur, rid))
             if est:
-                comment = (comment + f"  💵 Taxminiy summa: {est:,.0f} so'm").strip()
+                comment = (comment + f"  💵 Taxminiy summa: {est:,.0f} {cur}").strip()
         else:
             conn.execute("UPDATE requests SET status=? WHERE id=?", (new_status, rid))
 
