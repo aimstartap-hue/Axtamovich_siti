@@ -859,6 +859,72 @@ class Handler(BaseHTTPRequestHandler):
             conn.close()
             return self.send_json({"assets": out, "can_edit": user["role"] in ("admin", "oper", "axo")})
 
+        if path == "/api/kpi":
+            conn = db()
+            all_reqs = conn.execute("SELECT * FROM requests").fetchall()
+            reqs = [r for r in all_reqs if can_view(r, user)]
+            closed = [r for r in reqs if r["status"] == "closed"]
+
+            def last_event_time(rid):
+                e = conn.execute("SELECT MAX(created_at) AS m FROM events WHERE request_id=?", (rid,)).fetchone()
+                return e["m"] if e else None
+
+            def parse(dt):
+                try:
+                    return datetime.strptime(dt, "%Y-%m-%d %H:%M")
+                except (TypeError, ValueError):
+                    return None
+
+            # O'rtacha hal qilish vaqti (kunlarda) + muddatida bajarilgan %
+            durations, on_time, with_deadline = [], 0, 0
+            for r in closed:
+                ct, closed_t = parse(r["created_at"]), parse(last_event_time(r["id"]))
+                if ct and closed_t:
+                    durations.append((closed_t - ct).total_seconds() / 86400.0)
+                if r["deadline"]:
+                    with_deadline += 1
+                    if closed_t and closed_t.strftime("%Y-%m-%d") <= r["deadline"]:
+                        on_time += 1
+            avg_days = round(sum(durations) / len(durations), 1) if durations else 0
+            on_time_pct = round(on_time / with_deadline * 100) if with_deadline else 0
+
+            # Oylik trend (so'nggi 6 oy)
+            months = {}
+            for r in reqs:
+                m = (r["created_at"] or "")[:7]
+                if m:
+                    months[m] = months.get(m, 0) + 1
+            trend = sorted(months.items())[-6:]
+
+            # Eng faol AXO/Open group (hisobot soni bo'yicha)
+            visible_ids = {r["id"] for r in reqs}
+            performers = {}
+            for rep in conn.execute("SELECT rp.request_id, rp.submitted_by, u.full_name FROM reports rp LEFT JOIN users u ON u.id=rp.submitted_by").fetchall():
+                if rep["request_id"] in visible_ids and rep["full_name"]:
+                    performers[rep["full_name"]] = performers.get(rep["full_name"], 0) + 1
+            top_performers = sorted(performers.items(), key=lambda x: -x[1])[:5]
+
+            # Eng ko'p xarajat filiallari
+            branch_spend = {}
+            for rep in conn.execute("SELECT rp.total, req.branch_id FROM reports rp JOIN requests req ON req.id=rp.request_id").fetchall():
+                if rep["branch_id"]:
+                    branch_spend[rep["branch_id"]] = branch_spend.get(rep["branch_id"], 0) + (rep["total"] or 0)
+            top_branches = []
+            for bid, sp in sorted(branch_spend.items(), key=lambda x: -x[1])[:5]:
+                b = conn.execute("SELECT name FROM branches WHERE id=?", (bid,)).fetchone()
+                top_branches.append({"name": b["name"] if b else "?", "spend": sp})
+
+            overdue_now = sum(1 for r in reqs if r["deadline"] and r["status"] not in ("closed", "rejected")
+                              and r["deadline"] < datetime.now().strftime("%Y-%m-%d"))
+            conn.close()
+            return self.send_json({
+                "avg_days": avg_days, "on_time_pct": on_time_pct, "closed_count": len(closed),
+                "overdue_now": overdue_now, "with_deadline": with_deadline,
+                "trend": [{"month": m, "count": c} for m, c in trend],
+                "top_performers": [{"name": n, "count": c} for n, c in top_performers],
+                "top_branches": top_branches,
+            })
+
         if path == "/api/notifications":
             conn = db()
             rows = conn.execute(
@@ -1026,6 +1092,22 @@ class Handler(BaseHTTPRequestHandler):
         if path == "/api/notifications/read":
             conn = db()
             conn.execute("UPDATE notifications SET is_read=1 WHERE user_id=?", (user["id"],))
+            conn.commit()
+            conn.close()
+            return self.send_json({"ok": True})
+
+        if path == "/api/change-password":
+            data = self.read_json()
+            old = data.get("old") or ""
+            new = data.get("new") or ""
+            if len(new) < 3:
+                return self.send_json({"error": "Yangi parol kamida 3 belgi bo'lsin"}, 400)
+            oh, _ = hash_password(old, user["salt"])
+            if oh != user["password_hash"]:
+                return self.send_json({"error": "Joriy parol xato"}, 400)
+            nh, salt = hash_password(new)
+            conn = db()
+            conn.execute("UPDATE users SET password_hash=?, salt=? WHERE id=?", (nh, salt, user["id"]))
             conn.commit()
             conn.close()
             return self.send_json({"ok": True})

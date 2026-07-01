@@ -181,6 +181,23 @@ document.addEventListener("click", (e) => {
         pop.classList.add("hidden");
     }
 });
+$("#change-pw-btn").onclick = () => {
+    $("#settings-pop").classList.add("hidden");
+    showModal(`
+        <button class="modal-close" onclick="closeModal()">&times;</button>
+        <h3>🔑 Parolni o'zgartirish</h3>
+        <div class="field"><label>Joriy parol</label><input type="password" id="pw-old" autocomplete="off"></div>
+        <div class="field"><label>Yangi parol</label><input type="password" id="pw-new" autocomplete="new-password"></div>
+        <div class="modal-actions">
+            <button class="btn btn-ghost" onclick="closeModal()">Bekor</button>
+            <button class="btn btn-primary" onclick="changeMyPassword()">Saqlash</button>
+        </div>`);
+};
+async function changeMyPassword() {
+    const { ok, data } = await api("/api/change-password", "POST", { old: $("#pw-old").value, new: $("#pw-new").value });
+    if (ok) { closeModal(); alert("Parol o'zgartirildi ✅"); }
+    else alert((data && data.error) || "Xatolik");
+}
 document.querySelectorAll("#seg-lang button").forEach((b) => { b.onclick = () => setLang(b.dataset.lang); });
 document.querySelectorAll("#seg-theme button").forEach((b) => { b.onclick = () => setTheme(b.dataset.theme); });
 document.querySelectorAll(".lang-btn").forEach((b) => { b.onclick = () => setLang(b.dataset.lang); });
@@ -679,11 +696,35 @@ async function loadDashboard() {
 
 // ---------------- STATS ----------------
 async function loadStats() {
-    const { data: s } = await api("/api/stats");
+    const [{ data: s }, { data: k }] = await Promise.all([api("/api/stats"), api("/api/kpi")]);
     if (!s || s.error) return;
     const maxSpend = Math.max(1, ...s.branches.map((b) => b.spend));
     const barColors = ["#4f7cff", "#2fbf71", "#f5a623", "#a855f7", "#e5484d"];
+    const kpiHtml = k && !k.error ? `
+        <h4 style="margin-bottom:10px">📊 Asosiy ko'rsatkichlar (KPI)</h4>
+        <div class="stat-cards">
+            <div class="stat-card"><div class="stat-num">${k.avg_days}</div><div class="stat-lbl">O'rtacha hal qilish (kun)</div></div>
+            <div class="stat-card"><div class="stat-num" style="color:${k.on_time_pct >= 70 ? "var(--green)" : "var(--amber)"}">${k.on_time_pct}%</div><div class="stat-lbl">Muddatida bajarilgan</div></div>
+            <div class="stat-card"><div class="stat-num" style="color:var(--green)">${k.closed_count}</div><div class="stat-lbl">Yopilgan (jami)</div></div>
+            <div class="stat-card"><div class="stat-num" style="color:var(--red)">${k.overdue_now}</div><div class="stat-lbl">Hozir muddati o'tgan</div></div>
+        </div>
+        <div class="dash-cols" style="margin-top:14px">
+            <div class="settings-panel">
+                <h4>📈 Oylik zayavkalar</h4>
+                ${k.trend.length ? (() => { const mx = Math.max(1, ...k.trend.map((x) => x.count)); return k.trend.map((x) => `
+                    <div class="bar-row"><div class="bar-label">${x.month}</div>
+                    <div class="bar-track"><div class="bar-fill" style="width:${Math.round(x.count / mx * 100)}%;background:var(--primary)"></div></div>
+                    <div class="bar-val">${x.count} ta</div></div>`).join(""); })() : `<p class="muted">${t("no_data")}</p>`}
+            </div>
+            <div class="settings-panel">
+                <h4>🏆 Eng faol xodimlar</h4>
+                ${k.top_performers.length ? k.top_performers.map((p, i) => `
+                    <div class="dash-item"><span>${["🥇", "🥈", "🥉", "4", "5"][i]}</span><div class="di-main"><div class="di-title">${esc(p.name)}</div></div><b>${p.count} hisobot</b></div>`).join("") : `<p class="muted">${t("no_data")}</p>`}
+            </div>
+        </div>
+        <div class="detail-section"></div>` : "";
     $("#stats-content").innerHTML = `
+        ${kpiHtml}
         <div class="export-row">
             <a class="btn btn-ghost btn-sm" href="/api/export/expenses.csv" download>⬇️ Excel — xarajatlar</a>
             <a class="btn btn-ghost btn-sm" href="/api/export/requests.csv" download>⬇️ Excel — zayavkalar</a>
