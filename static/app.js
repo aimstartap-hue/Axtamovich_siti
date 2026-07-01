@@ -341,11 +341,11 @@ async function openDetail(id) {
     if (r.can_approve) {
         let approveLabel = "Tasdiqlash";
         if (r.status === "report_submitted") approveLabel = "Hisobotni tasdiqlash (yopish)";
-        else if (r.status === "pending_axo") approveLabel = "AXO: tasdiqlash";
+        else if (r.status === "pending_axo") approveLabel = "AXO: tasdiqlash + summa";
         else if (r.sets_deadline) approveLabel = "Tasdiqlash + muddat";
         else if (r.sets_limit) approveLabel = "Tasdiqlash (muddat + limit)";
         actions = `
-            <button class="btn btn-green" onclick='doApprove(${r.id}, ${r.sets_deadline ? "true" : "false"}, ${r.sets_limit ? "true" : "false"})'>${approveLabel}</button>
+            <button class="btn btn-green" onclick='doApprove(${r.id}, ${r.sets_deadline ? "true" : "false"}, ${r.sets_limit ? "true" : "false"}, ${r.sets_estimate ? "true" : "false"})'>${approveLabel}</button>
             <button class="btn btn-red" onclick="doReject(${r.id})">Rad etish</button>`;
     }
     if (r.can_resolve_dispute) {
@@ -401,6 +401,7 @@ async function openDetail(id) {
         </div>
         ${r.deadline ? `<div class="deadline-box ${r.overdue ? "overdue-box" : ""}">📅 Muddat: <b>${r.deadline}</b> ${r.deadline_confirmed ? '<span class="ok-tag">✅ Moliya tasdiqladi</span>' : '<span class="muted">— moliya tasdig\'i kutilmoqda</span>'} ${r.overdue ? '<span class="overdue">— muddat o\'tib ketdi!</span>' : ""}</div>` : ""}
         ${r.suggested_deadline && r.status === "deadline_dispute" ? `<div class="deadline-box overdue-box">⚠️ Moliya boshqa sana taklif qildi: <b>${r.suggested_deadline}</b> — CEO hal qilishi kerak</div>` : ""}
+        ${r.estimated_amount ? `<div class="deadline-box">💵 AXO taxminiy summasi: <b>${fmtMoney(r.estimated_amount)}</b></div>` : ""}
         ${r.limit_amount ? `<div class="deadline-box">💰 AXO uchun limit: <b>${fmtMoney(r.limit_amount)}</b>${reportTotal(r) > r.limit_amount ? ` <span class="overdue">— hisobot limitdan ${fmtMoney(reportTotal(r) - r.limit_amount)} oshgan!</span>` : (reportTotal(r) ? ` <span class="ok-tag">✅ limit ichida</span>` : "")}</div>` : ""}
         ${r.description ? `<div class="detail-section"><h4>Izoh</h4><p>${esc(r.description)}</p>${photoHtml}</div>` : (photoHtml ? `<div class="detail-section">${photoHtml}</div>` : "")}
         ${reportsHtml ? `<div class="detail-section"><h4>Foto-hisobot</h4>${reportsHtml}</div>` : ""}
@@ -441,9 +442,9 @@ async function sendComment(id) {
     else alert((data && data.error) || "Xatolik");
 }
 
-async function doApprove(id, setsDeadline, setsLimit) {
-    // Muddat/limit kerak bo'lmasa — bir bosishda, ortiqcha izoh so'ramasdan tasdiqlaydi
-    if (!setsDeadline && !setsLimit) {
+async function doApprove(id, setsDeadline, setsLimit, setsEstimate) {
+    // Muddat/limit/summa kerak bo'lmasa — bir bosishda, ortiqcha izoh so'ramasdan tasdiqlaydi
+    if (!setsDeadline && !setsLimit && !setsEstimate) {
         const { ok, data } = await api(`/api/requests/${id}/approve`, "POST", {});
         if (ok) { closeModal(); refreshCurrentView(); }
         else alert((data && data.error) || "Xatolik");
@@ -453,24 +454,26 @@ async function doApprove(id, setsDeadline, setsLimit) {
     showModal(`
         <button class="modal-close" onclick="closeModal()">&times;</button>
         <h3>Tasdiqlash</h3>
+        ${setsEstimate ? `<div class="field"><label>💵 Taxminiy summa (narx, so'm)</label><input type="number" id="ap-estimate" min="0" placeholder="Masalan: 500000" autocomplete="off"></div>
+            <p class="muted">Ishning taxminiy narxini yozing — CEO va Moliya shu asosda qaror qiladi.</p>` : ""}
         ${setsDeadline ? `<div class="field"><label>📅 Bajarilish muddati (dedline)</label><input type="date" id="ap-deadline" min="${today}" value="${today}"></div>
             <p class="muted">Muddatni belgilang. Keyingi bosqichda moliya bu sanani tasdiqlaydi yoki o'zgartirishni so'raydi.</p>` : ""}
         ${setsLimit ? `<div class="field"><label>💰 AXO uchun xarajat limiti (so'm, ixtiyoriy)</label><input type="number" id="ap-limit" min="0" placeholder="Masalan: 1000000" autocomplete="off"></div>
             <p class="muted">AXO bu summadan oshib xarajat qilsa, hisobotda ogohlantirish chiqadi.</p>` : ""}
-        <div class="field"><label>Izoh (ixtiyoriy)</label><textarea id="ap-comment" autocomplete="off" placeholder="Izoh"></textarea></div>
         <div class="modal-actions">
             <button class="btn btn-ghost" onclick="closeModal()">Bekor</button>
-            <button class="btn btn-green" onclick="confirmApprove(${id}, ${!!setsDeadline}, ${!!setsLimit})">Tasdiqlash</button>
+            <button class="btn btn-green" onclick="confirmApprove(${id}, ${!!setsDeadline}, ${!!setsLimit}, ${!!setsEstimate})">Tasdiqlash</button>
         </div>`);
 }
-async function confirmApprove(id, setsDeadline, setsLimit) {
-    const body = { comment: ($("#ap-comment") ? $("#ap-comment").value : "") };
+async function confirmApprove(id, setsDeadline, setsLimit, setsEstimate) {
+    const body = {};
     if (setsDeadline) {
         const dl = $("#ap-deadline").value;
         if (!dl) { alert("Iltimos, muddatni belgilang"); return; }
         body.deadline = dl;
     }
     if (setsLimit && $("#ap-limit") && $("#ap-limit").value) body.limit = parseFloat($("#ap-limit").value);
+    if (setsEstimate && $("#ap-estimate") && $("#ap-estimate").value) body.estimated = parseFloat($("#ap-estimate").value);
     const { ok, data } = await api(`/api/requests/${id}/approve`, "POST", body);
     if (ok) { closeModal(); refreshCurrentView(); }
     else alert((data && data.error) || "Xatolik");
@@ -481,19 +484,17 @@ function openResolveDispute(id, suggested) {
     showModal(`
         <button class="modal-close" onclick="closeModal()">&times;</button>
         <h3>Muddat nizosi</h3>
-        <p class="muted">Moliya boshqa sana taklif qildi: <b>${suggested || "—"}</b>. Shu sanani tasdiqlaysizmi yoki boshqa sana yuborasizmi?</p>
-        <div class="field"><label>Yangi sana (o'zgartirmoqchi bo'lsangiz)</label><input type="date" id="rd-deadline" min="${today}" value="${suggested || today}"></div>
+        <p class="muted">Moliya <b>${suggested || "—"}</b> sanani taklif qildi. Shu sanani qoldirib yoki o'zgartirib <b>Tasdiqlash</b>ni bosing. Sana yakuniy belgilanadi — moliyaga qayta so'rov yuborilmaydi.</p>
+        <div class="field"><label>📅 Yakuniy sana</label><input type="date" id="rd-deadline" min="${today}" value="${suggested || today}"></div>
         <div class="modal-actions">
             <button class="btn btn-ghost" onclick="closeModal()">Bekor</button>
-            <button class="btn btn-green" onclick="resolveDispute(${id}, true, ${JSON.stringify(suggested || "")})">✅ Taklif sanani tasdiqlash</button>
-            <button class="btn btn-primary" onclick="resolveDispute(${id}, false)">📅 Bu sanani yuborish</button>
+            <button class="btn btn-green" onclick="resolveDispute(${id})">✅ Tasdiqlash</button>
         </div>`);
 }
-async function resolveDispute(id, acceptSuggested, suggested) {
-    const body = {};
-    if (acceptSuggested) body.deadline = suggested;
-    else body.deadline = $("#rd-deadline").value;
-    const { ok, data } = await api(`/api/requests/${id}/resolve-dispute`, "POST", body);
+async function resolveDispute(id) {
+    const dl = $("#rd-deadline").value;
+    if (!dl) { alert("Sanani belgilang"); return; }
+    const { ok, data } = await api(`/api/requests/${id}/resolve-dispute`, "POST", { deadline: dl });
     if (ok) { closeModal(); refreshCurrentView(); }
     else alert((data && data.error) || "Xatolik");
 }
@@ -1026,7 +1027,7 @@ async function loadAdmin() {
             <div class="bc-name">${esc(b.name)}</div>
             <div class="bc-status">${b.status === "construction" ? "🏗 Qurilish jarayonida" : "🟢 Faol (savdoda)"}</div>
             <div class="bc-actions">
-                ${b.status === "construction" && canActivate ? `<button class="btn btn-green btn-sm" onclick="activateBranch(${b.id})">✅ Qurilish tugadi</button>` : ""}
+                ${b.status === "construction" && canActivate ? `<button class="btn btn-green btn-sm" onclick="activateBranch(${b.id})">✅ Qurildi — tasdiqlash</button>` : ""}
                 <button class="link-btn" style="color:var(--red)" onclick="deleteBranch(${b.id})">O'chirish</button>
             </div>
         </div>`;
@@ -1044,14 +1045,14 @@ async function loadAdmin() {
             </div>
 
             <div class="settings-panel">
-                <div class="admin-head"><h3 class="panel-title">🟢 Faol filiallar (savdoda)</h3><button class="btn btn-primary btn-sm" onclick="openBranchForm()">+ Filial</button></div>
-                <div class="branch-grid">${active.map(branchCard).join("") || '<p class="muted">Faol filial yo\'q.</p>'}</div>
+                <div class="admin-head"><h3 class="panel-title">🏗 Qurilayotgan (yangi) filiallar</h3><button class="btn btn-primary btn-sm" onclick="openBranchForm()">+ Filial</button></div>
+                <p class="muted" style="margin-bottom:10px">Hozircha qurilish jarayonida. Qurib bo'lingach, admin/CEO <b>tasdiqlasa</b> — pastdagi "Qurilgan" ro'yxatiga o'tadi.</p>
+                <div class="branch-grid">${construction.map(branchCard).join("") || '<p class="muted">Qurilayotgan filial yo\'q.</p>'}</div>
             </div>
 
             <div class="settings-panel">
-                <h3 class="panel-title">🏗 Qurilish jarayonidagi filiallar</h3>
-                <p class="muted" style="margin-bottom:10px">Qurilish tugaganini tasdiqlasangiz, filial faol (savdodagi) ro'yxatga o'tadi.</p>
-                <div class="branch-grid">${construction.map(branchCard).join("") || '<p class="muted">Qurilishdagi filial yo\'q.</p>'}</div>
+                <h3 class="panel-title">✅ Qurilgan (faol, savdodagi) filiallar</h3>
+                <div class="branch-grid">${active.map(branchCard).join("") || '<p class="muted">Qurilgan filial yo\'q.</p>'}</div>
             </div>
         </div>`;
 }

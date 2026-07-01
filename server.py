@@ -274,6 +274,7 @@ def init_db():
     add_col("requests", "suggested_deadline", "TEXT")
     add_col("requests", "deadline_disputed", "INTEGER DEFAULT 0")
     add_col("requests", "limit_amount", "REAL")
+    add_col("requests", "estimated_amount", "REAL")
     add_col("requests", "escalated", "INTEGER DEFAULT 0")
     add_col("report_items", "category", "TEXT")
     add_col("report_items", "supplier", "TEXT")
@@ -353,6 +354,11 @@ def sets_limit_on_approve(request):
     return request["type"] == "maintenance" and request["status"] == "pending_finance"
 
 
+def sets_estimate_on_approve(request):
+    """Shu tasdiqda AXO taxminiy summa (narx) kiritadimi? — AXO bosqichida."""
+    return request["type"] == "maintenance" and request["status"] == "pending_axo"
+
+
 def can_request_deadline_change(request, role):
     """Moliya muddatni o'zgartirishni so'ray oladimi? (faqat bir marta, CEO ga qaytadi)"""
     return (request["status"] == "pending_finance" and role == "finance"
@@ -417,6 +423,8 @@ def can_hr_resolve(request, role):
 def needs_action(request, role):
     """Shu rol uchun bu zayavka hozir harakat (tasdiq yoki hisobot) talab qiladimi?"""
     if can_approve(request, role) or can_submit_report(request, role):
+        return True
+    if can_resolve_dispute(request, role):     # CEO muddat nizosini hal qilishi kerak
         return True
     if role == "hr" and request["status"] == "hr_review":
         return True
@@ -599,6 +607,7 @@ def request_to_dict(conn, r, full=False):
         "deadline_confirmed": bool(r["deadline_confirmed"]),
         "suggested_deadline": r["suggested_deadline"],
         "limit_amount": r["limit_amount"],
+        "estimated_amount": r["estimated_amount"],
         "overdue": bool(r["deadline"] and r["status"] not in ("closed", "rejected")
                         and r["deadline"] < datetime.now().strftime("%Y-%m-%d")),
         "escalated": bool(r["escalated"]),
@@ -1050,6 +1059,7 @@ class Handler(BaseHTTPRequestHandler):
             d["can_request_deadline_change"] = can_request_deadline_change(r, user["role"])
             d["sets_deadline"] = sets_deadline_on_approve(r)
             d["sets_limit"] = sets_limit_on_approve(r)
+            d["sets_estimate"] = sets_estimate_on_approve(r)
             d["can_resolve_dispute"] = can_resolve_dispute(r, user["role"])
             d["can_reopen"] = can_reopen(r, user)
             d["can_send_to_hr"] = can_send_to_hr(r, user)
@@ -1248,6 +1258,16 @@ class Handler(BaseHTTPRequestHandler):
                 comment = (comment + f"  ✅ Muddat tasdiqlandi: {r['deadline']}").strip()
             if limit:
                 comment = (comment + f"  💰 AXO limiti: {limit:,.0f} so'm").strip()
+        elif sets_estimate_on_approve(r):
+            # AXO tasdiqlaydi + taxminiy summa (narx) kiritadi
+            est = data.get("estimated")
+            try:
+                est = float(est) if est not in (None, "") else None
+            except (TypeError, ValueError):
+                est = None
+            conn.execute("UPDATE requests SET status=?, estimated_amount=? WHERE id=?", (new_status, est, rid))
+            if est:
+                comment = (comment + f"  💵 Taxminiy summa: {est:,.0f} so'm").strip()
         else:
             conn.execute("UPDATE requests SET status=? WHERE id=?", (new_status, rid))
 
