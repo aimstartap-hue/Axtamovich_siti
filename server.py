@@ -284,6 +284,7 @@ def init_db():
     add_col("requests", "deadline_disputed", "INTEGER DEFAULT 0")
     add_col("requests", "limit_amount", "REAL")
     add_col("requests", "limit_type", "TEXT DEFAULT 'soft'")   # 'soft' = ogohlantiradi, 'hard' = qat'iy bloklaydi
+    add_col("requests", "photos_json", "TEXT")   # zayavkaga bir nechta rasm
     add_col("requests", "estimated_amount", "REAL")
     add_col("requests", "estimated_currency", "TEXT DEFAULT 'so''m'")
     add_col("requests", "estimated_category", "TEXT")
@@ -693,6 +694,8 @@ def request_to_dict(conn, r, full=False):
         "title": r["title"],
         "description": r["description"],
         "photo": r["photo"],
+        "photos": (json.loads(r["photos_json"]) if ("photos_json" in r.keys() and r["photos_json"])
+                   else ([r["photo"]] if r["photo"] else [])),
         "branch": branch,
         "created_by": creator["full_name"] if creator else "?",
         "created_by_role": ROLES.get(creator["role"], "") if creator else "",
@@ -1348,12 +1351,22 @@ class Handler(BaseHTTPRequestHandler):
         else:
             return self.send_json({"error": "Noto'g'ri tur"}, 400)
 
-        photo = save_data_url(data.get("photo"))
+        # Bir nechta rasm (photos[]), eskisiga moslik uchun bittasi (photo) ham qo'llab-quvvatlanadi
+        photo_urls = []
+        for p in (data.get("photos") or []):
+            saved = save_data_url(p)
+            if saved:
+                photo_urls.append(saved)
+        if not photo_urls and data.get("photo"):
+            saved = save_data_url(data.get("photo"))
+            if saved:
+                photo_urls.append(saved)
+        photo = photo_urls[0] if photo_urls else None
         conn = db()
         cur = conn.execute(
-            "INSERT INTO requests(type,title,description,photo,branch_id,created_by,status,created_at) "
-            "VALUES(?,?,?,?,?,?,?,?)",
-            (rtype, title, data.get("description", ""), photo, branch_id, user["id"], status, now()),
+            "INSERT INTO requests(type,title,description,photo,photos_json,branch_id,created_by,status,created_at) "
+            "VALUES(?,?,?,?,?,?,?,?,?)",
+            (rtype, title, data.get("description", ""), photo, json.dumps(photo_urls), branch_id, user["id"], status, now()),
         )
         rid = cur.lastrowid
         conn.execute(

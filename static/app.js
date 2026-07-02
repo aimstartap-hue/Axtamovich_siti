@@ -85,6 +85,13 @@ const api = async (url, method = "GET", body = null) => {
     return { ok: res.ok, status: res.status, data };
 };
 const fmtMoney = (n) => (Number(n) || 0).toLocaleString("ru-RU") + " so'm";
+// Sanani "2026-07-02 07:13" -> "02.07.2026 07:13" (yoki "2026-07-02" -> "02.07.2026")
+function fmtDate(s) {
+    if (!s) return "";
+    const m = String(s).match(/^(\d{4})-(\d{2})-(\d{2})(?:[ T](\d{2}:\d{2}))?/);
+    if (!m) return s;
+    return `${m[3]}.${m[2]}.${m[1]}` + (m[4] ? " " + m[4] : "");
+}
 
 // ---- fayl -> base64 ----
 function fileToDataUrl(file) {
@@ -223,7 +230,7 @@ async function loadNotifications(openPanel) {
         list.innerHTML = data.items.length ? data.items.map((n) => `
             <div class="notif-item ${n.is_read ? "" : "unread"}" ${n.request_id ? `onclick="openNotif(${n.request_id})"` : ""}>
                 <div class="ni-text">${esc(n.text)}</div>
-                <div class="ni-at">${n.at}</div>
+                <div class="ni-at">${fmtDate(n.at)}</div>
             </div>`).join("") : `<p class="muted" style="padding:8px">Bildirishnoma yo'q.</p>`;
     }
 }
@@ -328,8 +335,8 @@ function cardHtml(r) {
                     <span>#${r.id}</span>
                     ${r.branch ? `<span>📍 ${esc(r.branch)}</span>` : ""}
                     <span>👤 ${esc(r.created_by)}</span>
-                    ${r.deadline ? `<span class="${r.overdue ? "overdue" : "deadline"}">📅 ${r.deadline}${r.overdue ? " (muddat o'tdi!)" : ""}${r.deadline_confirmed ? " ✅" : ""}</span>` : ""}
-                    <span>🕓 ${r.created_at}</span>
+                    ${r.deadline ? `<span class="${r.overdue ? "overdue" : "deadline"}">📅 ${fmtDate(r.deadline)}${r.overdue ? " (muddat o'tdi!)" : ""}${r.deadline_confirmed ? " ✅" : ""}</span>` : ""}
+                    <span>🕓 ${fmtDate(r.created_at)}</span>
                 </div>
             </div>
             <span class="status s-${r.status}">${r.status_label}</span>
@@ -374,11 +381,12 @@ async function openDetail(id) {
         actions += `<button class="btn btn-green" onclick="doHrResolve(${r.id})">✅ Hal qilindi (yopish)</button>`;
     }
 
-    const photoHtml = r.photo ? `<img src="${r.photo}" class="photo-thumb">` : "";
+    const detailPhotos = (r.photos && r.photos.length) ? r.photos : (r.photo ? [r.photo] : []);
+    const photoHtml = detailPhotos.length ? `<div class="photo-grid" style="margin-top:8px">${detailPhotos.map((p) => `<img src="${p}" class="photo-thumb" style="cursor:pointer" onclick="window.open('${p}')">`).join("")}</div>` : "";
 
     const reportsHtml = (r.reports || []).map((rep) => `
         <div class="report-box">
-            <div class="muted">${esc(rep.by)} · ${rep.at}</div>
+            <div class="muted">${esc(rep.by)} · ${fmtDate(rep.at)}</div>
             ${rep.note ? `<p style="margin:8px 0">${esc(rep.note)}</p>` : ""}
             ${rep.items.length ? `
             <table class="items-table">
@@ -392,7 +400,7 @@ async function openDetail(id) {
     const timeline = (r.events || []).map((e) => `
         <li>
             <div class="tl-action">${esc(e.action)}</div>
-            <div class="tl-meta">${esc(e.user)} ${e.role ? "· " + esc(e.role) : ""} · ${e.at}</div>
+            <div class="tl-meta">${esc(e.user)} ${e.role ? "· " + esc(e.role) : ""} · ${fmtDate(e.at)}</div>
             ${e.comment ? `<div class="tl-comment">"${esc(e.comment)}"</div>` : ""}
         </li>`).join("");
 
@@ -406,8 +414,8 @@ async function openDetail(id) {
             <span>👤 ${esc(r.created_by)} (${esc(r.created_by_role)})</span>
             <span class="status s-${r.status}">${r.status_label}</span>
         </div>
-        ${r.deadline ? `<div class="deadline-box ${r.overdue ? "overdue-box" : ""}">📅 Muddat: <b>${r.deadline}</b> ${r.deadline_confirmed ? '<span class="ok-tag">✅ Moliya tasdiqladi</span>' : '<span class="muted">— moliya tasdig\'i kutilmoqda</span>'} ${r.overdue ? '<span class="overdue">— muddat o\'tib ketdi!</span>' : ""}</div>` : ""}
-        ${r.suggested_deadline && r.status === "deadline_dispute" ? `<div class="deadline-box overdue-box">⚠️ Moliya boshqa sana taklif qildi: <b>${r.suggested_deadline}</b> — CEO hal qilishi kerak</div>` : ""}
+        ${r.deadline ? `<div class="deadline-box ${r.overdue ? "overdue-box" : ""}">📅 Muddat: <b>${fmtDate(r.deadline)}</b> ${r.deadline_confirmed ? '<span class="ok-tag">✅ Moliya tasdiqladi</span>' : '<span class="muted">— moliya tasdig\'i kutilmoqda</span>'} ${r.overdue ? '<span class="overdue">— muddat o\'tib ketdi!</span>' : ""}</div>` : ""}
+        ${r.suggested_deadline && r.status === "deadline_dispute" ? `<div class="deadline-box overdue-box">⚠️ Moliya boshqa sana taklif qildi: <b>${fmtDate(r.suggested_deadline)}</b> — CEO hal qilishi kerak</div>` : ""}
         ${r.estimated_amount ? `<div class="deadline-box">💵 AXO summasi: <b>${(Number(r.estimated_amount) || 0).toLocaleString("ru-RU")} ${esc(r.estimated_currency || "so'm")}</b></div>` : ""}
         ${r.limit_amount ? `<div class="deadline-box">💰 AXO uchun limit: <b>${fmtMoney(r.limit_amount)}</b> ${r.limit_type === "hard" ? `<span class="ok-tag" style="background:var(--red);color:#fff">🔒 Qat'iy</span>` : `<span class="muted">🟡 yumshoq</span>`}${reportTotal(r) > r.limit_amount ? ` <span class="overdue">— hisobot limitdan ${fmtMoney(reportTotal(r) - r.limit_amount)} oshgan!</span>` : (reportTotal(r) ? ` <span class="ok-tag">✅ limit ichida</span>` : "")}</div>` : ""}
         ${r.description ? `<div class="detail-section"><h4>Izoh</h4><p>${esc(r.description)}</p>${photoHtml}</div>` : (photoHtml ? `<div class="detail-section">${photoHtml}</div>` : "")}
@@ -429,7 +437,7 @@ function commentsHtml(r) {
     if (!cs.length) return `<p class="muted">Hali izoh yo'q. Birinchi bo'lib yozing.</p>`;
     return cs.map((c) => `
         <div class="comment">
-            <div class="cm-head">${esc(c.user)} <span class="muted">${c.role ? "· " + esc(c.role) : ""} · ${c.at}</span></div>
+            <div class="cm-head">${esc(c.user)} <span class="muted">${c.role ? "· " + esc(c.role) : ""} · ${fmtDate(c.at)}</span></div>
             <div class="cm-text">${esc(c.text)}</div>
         </div>`).join("");
 }
@@ -733,21 +741,41 @@ async function openNewForm(type) {
         <div class="field"><label>Sarlavha</label><input id="req-title" autocomplete="off" placeholder="${titlePh}"></div>
         <div class="field"><label>Batafsil izoh</label><textarea id="req-desc" autocomplete="off" placeholder="Muammo yoki so'rov tafsilotlari"></textarea></div>
         ${branchField}
-        <div class="field"><label>Rasm (ixtiyoriy)</label><input type="file" id="req-photo" accept="image/*"></div>
+        <div class="field"><label>Rasmlar (ixtiyoriy — xohlagancha qo'shsa bo'ladi)</label>
+            <input type="file" id="req-photo" accept="image/*" multiple onchange="addNewPhotos(this)">
+            <div id="new-photo-previews" class="photo-grid" style="margin-top:8px"></div>
+        </div>
         <div class="modal-actions">
             <button class="btn btn-ghost" onclick="closeModal()">Bekor</button>
             <button class="btn btn-primary" onclick="submitNew('${type}')">Yuborish</button>
         </div>
     `);
+    NEW_PHOTOS = [];
+    renderNewPhotos();
 }
+let NEW_PHOTOS = [];
+async function addNewPhotos(input) {
+    for (const f of input.files) {
+        try { NEW_PHOTOS.push(await fileToDataUrl(f)); } catch (e) {}
+    }
+    input.value = "";  // keyingi tanlashda ustiga yozib yubormasligi uchun
+    renderNewPhotos();
+}
+function renderNewPhotos() {
+    const box = $("#new-photo-previews");
+    if (!box) return;
+    box.innerHTML = NEW_PHOTOS.map((p, i) => `<div style="position:relative;display:inline-block;margin:2px">
+        <img src="${p}" style="width:70px;height:70px;object-fit:cover;border-radius:8px;border:1px solid var(--border)">
+        <button onclick="removeNewPhoto(${i})" title="O'chirish" style="position:absolute;top:-8px;right:-8px;width:22px;height:22px;border-radius:50%;border:none;background:var(--red);color:#fff;cursor:pointer;font-weight:bold">✕</button>
+    </div>`).join("") + (NEW_PHOTOS.length ? `<div class="muted" style="width:100%;margin-top:4px">📷 ${NEW_PHOTOS.length} ta rasm tanlandi</div>` : "");
+}
+function removeNewPhoto(i) { NEW_PHOTOS.splice(i, 1); renderNewPhotos(); }
 async function submitNew(type) {
     const title = $("#req-title").value.trim();
     if (!title) { alert("Sarlavhani kiriting"); return; }
-    let photo = null;
-    const pf = $("#req-photo").files[0];
-    if (pf) photo = await fileToDataUrl(pf);
     const branchEl = $("#req-branch");
-    const body = { type, title, description: $("#req-desc").value, photo };
+    const body = { type, title, description: $("#req-desc").value, photos: NEW_PHOTOS };
+    if (NEW_PHOTOS.length) body.photo = NEW_PHOTOS[0];  // eski maydonga moslik
     if (branchEl && branchEl.value) body.branch_id = parseInt(branchEl.value);
     const { ok, data } = await api("/api/requests", "POST", body);
     if (ok) { closeModal(); refreshCurrentView(); }
@@ -767,14 +795,14 @@ async function loadDashboard() {
         <div class="dash-item" onclick="openDetail(${r.id})">
             <span class="type-tag type-${r.type}">${r.type === "new_branch" ? "🏗" : "🔧"}</span>
             <div class="di-main"><div class="di-title">${esc(r.title)}</div>
-                <div class="di-meta">${r.branch ? "📍 " + esc(r.branch) + " · " : ""}${r.status_label}</div></div>
+                <div class="di-meta">${r.branch ? "📍 " + esc(r.branch) + " · " : ""}🕓 ${fmtDate(r.created_at)} · ${r.status_label}</div></div>
             <span class="status s-${r.status}">${r.status_label}</span>
         </div>`).join("") : `<p class="muted">${LANG === "ru" ? "Действий не требуется ✅" : "Harakat talab qilinmaydi ✅"}</p>`;
 
     const recent = active.filter((r) => !r.needs_my_action).slice(0, 6).map((r) => `
         <div class="dash-item" onclick="openDetail(${r.id})">
             <div class="di-main"><div class="di-title">#${r.id} ${esc(r.title)}</div>
-                <div class="di-meta">${esc(r.created_by)} · ${r.created_at}${r.deadline ? " · 📅 " + r.deadline : ""}</div></div>
+                <div class="di-meta">${esc(r.created_by)} · ${fmtDate(r.created_at)}${r.deadline ? " · 📅 " + fmtDate(r.deadline) : ""}</div></div>
             <span class="status s-${r.status}">${r.status_label}</span>
         </div>`).join("") || `<p class="muted">${t("no_data")}</p>`;
 
@@ -1048,7 +1076,7 @@ async function loadSuppliers() {
             ${s.note ? `<p class="muted">${esc(s.note)}</p>` : ""}
             ${s.history.length ? `<table class="items-table" style="margin-top:8px">
                 <tr><th>Tovar</th><th>Soni</th><th>Narxi</th><th>Sana</th></tr>
-                ${s.history.map((h) => `<tr><td>${esc(h.name)}</td><td>${h.qty}</td><td>${fmtMoney(h.price)}</td><td>${esc(h.at)}</td></tr>`).join("")}
+                ${s.history.map((h) => `<tr><td>${esc(h.name)}</td><td>${h.qty}</td><td>${fmtMoney(h.price)}</td><td>${fmtDate(h.at)}</td></tr>`).join("")}
             </table>` : `<p class="muted">Narx tarixi yo'q (hisobotlarda bu yetkazib beruvchi tanlanmagan).</p>`}
         </div>`).join("");
     $("#suppliers-content").innerHTML = `
@@ -1266,14 +1294,14 @@ function buildRequestText(r) {
     L.push("Sarlavha:   " + r.title);
     if (r.branch) L.push("Filial:     " + r.branch);
     L.push("Yaratdi:    " + r.created_by + " (" + r.created_by_role + ")");
-    L.push("Sana:       " + r.created_at);
+    L.push("Sana:       " + fmtDate(r.created_at));
     L.push("Holat:      " + r.status_label);
-    if (r.deadline) L.push("Muddat:     " + r.deadline + (r.deadline_confirmed ? " (moliya tasdiqlagan)" : " (tasdiq kutilmoqda)"));
+    if (r.deadline) L.push("Muddat:     " + fmtDate(r.deadline) + (r.deadline_confirmed ? " (moliya tasdiqlagan)" : " (tasdiq kutilmoqda)"));
     if (r.limit_amount) L.push("AXO limiti: " + fmtMoney(r.limit_amount));
     if (r.description) { L.push(sub); L.push("IZOH:"); L.push(r.description); }
     (r.reports || []).forEach((rep, idx) => {
         L.push(sub);
-        L.push("FOTO-HISOBOT #" + (idx + 1) + " — " + rep.by + " (" + rep.at + ")");
+        L.push("FOTO-HISOBOT #" + (idx + 1) + " — " + rep.by + " (" + fmtDate(rep.at) + ")");
         if (rep.note) L.push("  " + rep.note);
         rep.items.forEach((i) => {
             L.push("  • [" + (i.category || "—") + "] " + i.name + (i.supplier ? " (" + i.supplier + ")" : "") + " — " + i.qty + " x " + fmtMoney(i.price) + " = " + fmtMoney(i.qty * i.price));
@@ -1283,12 +1311,12 @@ function buildRequestText(r) {
     if ((r.comments || []).length) {
         L.push(sub);
         L.push("IZOHLAR:");
-        r.comments.forEach((c) => { L.push("  " + c.at + " | " + c.user + ": " + c.text); });
+        r.comments.forEach((c) => { L.push("  " + fmtDate(c.at) + " | " + c.user + ": " + c.text); });
     }
     L.push(sub);
     L.push("HARAKATLAR TARIXI:");
     (r.events || []).forEach((e) => {
-        L.push("  - " + e.at + " | " + e.action + " — " + e.user + (e.role ? " (" + e.role + ")" : ""));
+        L.push("  - " + fmtDate(e.at) + " | " + e.action + " — " + e.user + (e.role ? " (" + e.role + ")" : ""));
         if (e.comment) L.push("      \"" + e.comment + "\"");
     });
     L.push(line);
