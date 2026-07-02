@@ -4,7 +4,7 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
     <title>AXO-OPEN group</title>
-    <link rel="stylesheet" href="/static/style.css?v=11">
+    <link rel="stylesheet" href="/static/style.css?v=12">
     <link rel="manifest" href="/manifest.json">
     <meta name="theme-color" content="#0f1117">
     <meta name="mobile-web-app-capable" content="yes">
@@ -98,6 +98,8 @@
                 <button class="menu-item hidden" id="menu-assets" data-view="assets">🧰 Aktivlar / Jihozlar</button>
                 <button class="menu-item hidden" id="menu-recurring" data-view="recurring">🔁 Profilaktik ishlar</button>
                 <button class="menu-item hidden" id="menu-suppliers" data-view="suppliers">🚚 Yetkazib beruvchilar</button>
+                <button class="menu-item hidden" id="menu-limits" data-view="limits">🎯 Limitlar</button>
+                <button class="menu-item hidden" id="menu-perms" data-view="perms">🔐 Ruxsatlar</button>
                 <button class="menu-item hidden" id="menu-admin" data-view="admin" data-i18n="settings">⚙️ Sozlamalar</button>
             </nav>
             <div class="drawer-foot">
@@ -164,6 +166,18 @@
                 <div id="suppliers-content"></div>
             </section>
 
+            <!-- VIEW: Limitlar -->
+            <section id="view-limits" class="view hidden">
+                <div class="toolbar"><h2>🎯 Limitlar</h2></div>
+                <div id="limits-content"></div>
+            </section>
+
+            <!-- VIEW: Ruxsatlar -->
+            <section id="view-perms" class="view hidden">
+                <div class="toolbar"><h2>🔐 Ruxsatlar (rol qobiliyatlari)</h2></div>
+                <div id="perms-content"></div>
+            </section>
+
             <!-- VIEW: Admin -->
             <section id="view-admin" class="view hidden">
                 <div class="toolbar"><h2 data-i18n="settings">Sozlamalar</h2></div>
@@ -188,6 +202,6 @@
     <!-- O'rnatish taklifi (PWA) -->
     <button id="install-btn" class="install-btn hidden">⬇️ Ilovani o'rnatish</button>
 
-    <script src="/static/app.js?v=11"></script>
+    <script src="/static/app.js?v=12"></script>
 </body>
 </html>

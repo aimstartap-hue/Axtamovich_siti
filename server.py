@@ -46,6 +46,30 @@ ROLES = {
 # Sozlamalar (filial/foydalanuvchi) huquqiga ega rollar
 ADMIN_ROLES = ("admin", "oper")
 
+# Rol qobiliyatlari (admin yoqadi/o'chiradi)
+PERMS = {
+    "create_maintenance": "Texnik zayavka yaratish",
+    "create_new_branch": "Yangi filial so'rovi yaratish",
+    "view_analytics": "Hisobot va analitikani ko'rish",
+    "manage_limits": "Limitlar bo'limini boshqarish",
+    "manage_settings": "Sozlamalar (admin) bo'limi",
+}
+DEFAULT_PERMS = {
+    "create_maintenance": ("branch_manager", "axo", "regmen", "open_group", "admin"),
+    "create_new_branch": ("open_group", "admin"),
+    "view_analytics": ("admin", "oper", "ceo", "finance", "ops_director", "open_group", "regmen"),
+    "manage_limits": ("admin", "oper", "ceo", "finance"),
+    "manage_settings": ("admin", "oper"),
+}
+
+
+def has_perm(conn, role, perm):
+    """Rol shu qobiliyatga egami? role_perms jadvalidan, bo'lmasa standartdan."""
+    row = conn.execute("SELECT allowed FROM role_perms WHERE role=? AND perm=?", (role, perm)).fetchone()
+    if row is None:
+        return role in DEFAULT_PERMS.get(perm, ())
+    return bool(row["allowed"])
+
 # Rasxod (xarajat) turlari — bo'limlarga ajratilgan
 EXPENSE_GROUPS = {
     "АХО / Хозяйственные": [
@@ -267,6 +291,20 @@ def init_db():
             key TEXT PRIMARY KEY,
             value TEXT
         );
+        CREATE TABLE IF NOT EXISTS limits (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            scope TEXT NOT NULL,          -- 'category' | 'branch' | 'user' | 'role'
+            ref TEXT NOT NULL,            -- kategoriya nomi / branch_id / user_id / rol
+            amount REAL NOT NULL,
+            created_at TEXT NOT NULL,
+            UNIQUE(scope, ref)
+        );
+        CREATE TABLE IF NOT EXISTS role_perms (
+            role TEXT NOT NULL,
+            perm TEXT NOT NULL,
+            allowed INTEGER DEFAULT 1,
+            UNIQUE(role, perm)
+        );
         """
     )
     conn.commit()
@@ -298,6 +336,11 @@ def init_db():
     # Sozlamalar (admin o'zgartira oladi)
     c.execute("INSERT OR IGNORE INTO settings(key,value) VALUES('ceo_threshold','50000000')")
     c.execute("INSERT OR IGNORE INTO settings(key,value) VALUES('axo_open_limit','5')")  # AXO bir vaqtda nechta topshirilmagan ochchot ushlashi mumkin
+    # Rol qobiliyatlari (standart qiymatlar)
+    for _role in ROLES:
+        for _perm in PERMS:
+            _allowed = 1 if _role in DEFAULT_PERMS.get(_perm, ()) else 0
+            c.execute("INSERT OR IGNORE INTO role_perms(role,perm,allowed) VALUES(?,?,?)", (_role, _perm, _allowed))
     conn.commit()
 
     # Seed (faqat bo'sh bo'lsa) — HAQIQIY MA'LUMOTLAR (Zahratun fast-food tarmog'i)
@@ -394,6 +437,75 @@ def get_axo_open_limit(conn):
         return int(float(row["value"])) if row and row["value"] else 5
     except Exception:
         return 5
+
+
+def current_month():
+    return datetime.now().strftime("%Y-%m")
+
+
+def limit_spent(conn, scope, ref, month):
+    """Shu oyda (month='YYYY-MM') tegishli doira bo'yicha sarflangan summa (hisobotlardan)."""
+    like = month + "%"
+    if scope == "category":
+        row = conn.execute(
+            "SELECT COALESCE(SUM(ri.qty*ri.price),0) FROM report_items ri "
+            "JOIN reports r ON ri.report_id=r.id WHERE ri.category=? AND r.created_at LIKE ?",
+            (ref, like)).fetchone()
+    elif scope == "branch":
+        row = conn.execute(
+            "SELECT COALESCE(SUM(r.total),0) FROM reports r JOIN requests q ON r.request_id=q.id "
+            "WHERE q.branch_id=? AND r.created_at LIKE ?", (_to_int(ref), like)).fetchone()
+    elif scope == "user":
+        row = conn.execute(
+            "SELECT COALESCE(SUM(r.total),0) FROM reports r JOIN requests q ON r.request_id=q.id "
+            "WHERE q.created_by=? AND r.created_at LIKE ?", (_to_int(ref), like)).fetchone()
+    elif scope == "role":
+        row = conn.execute(
+            "SELECT COALESCE(SUM(r.total),0) FROM reports r JOIN requests q ON r.request_id=q.id "
+            "JOIN users u ON q.created_by=u.id WHERE u.role=? AND r.created_at LIKE ?", (ref, like)).fetchone()
+    else:
+        return 0.0
+    return float(row[0] or 0)
+
+
+def _to_int(v):
+    try:
+        return int(v)
+    except (TypeError, ValueError):
+        return -1
+
+
+def limit_ref_label(conn, scope, ref):
+    if scope == "branch":
+        b = conn.execute("SELECT name FROM branches WHERE id=?", (_to_int(ref),)).fetchone()
+        return b["name"] if b else f"#{ref}"
+    if scope == "user":
+        u = conn.execute("SELECT full_name FROM users WHERE id=?", (_to_int(ref),)).fetchone()
+        return u["full_name"] if u else f"#{ref}"
+    if scope == "role":
+        return ROLES.get(ref, ref)
+    return ref  # category
+
+
+def limit_status(conn, month=None):
+    """Barcha limitlar + sarflangan summa; qaysi doiralar oshgani (over) to'plami."""
+    month = month or current_month()
+    lims = conn.execute("SELECT * FROM limits ORDER BY scope, ref").fetchall()
+    result = []
+    over = {"category": set(), "branch": set(), "user": set(), "role": set()}
+    for l in lims:
+        spent = limit_spent(conn, l["scope"], l["ref"], month)
+        is_over = spent > float(l["amount"])
+        if is_over:
+            over[l["scope"]].add(str(l["ref"]))
+        result.append({
+            "id": l["id"], "scope": l["scope"], "ref": l["ref"],
+            "ref_label": limit_ref_label(conn, l["scope"], l["ref"]),
+            "amount": float(l["amount"]), "spent": spent,
+            "remaining": float(l["amount"]) - spent, "over": is_over,
+            "pct": round(spent / float(l["amount"]) * 100) if l["amount"] else 0,
+        })
+    return result, over
 
 
 def start_status(rtype):
@@ -1067,6 +1179,7 @@ class Handler(BaseHTTPRequestHandler):
 
         if path == "/api/requests":
             process_due(conn)   # profilaktika + eskalatsiya
+            _, over = limit_status(conn)   # oshgan doiralar
             rows = conn.execute("SELECT * FROM requests ORDER BY id DESC").fetchall()
             out = []
             for r in rows:
@@ -1074,6 +1187,7 @@ class Handler(BaseHTTPRequestHandler):
                     continue
                 d = request_to_dict(conn, r)
                 d["needs_my_action"] = needs_action(r, user["role"])
+                d["over_limit"] = self._request_over_limit(conn, r, over)
                 out.append(d)
             conn.close()
             return self.send_json(out)
@@ -1159,6 +1273,33 @@ class Handler(BaseHTTPRequestHandler):
             axo_lim = get_axo_open_limit(conn)
             conn.close()
             return self.send_json({"ceo_threshold": thr, "axo_open_limit": axo_lim})
+
+        if path == "/api/limits":
+            if not (has_perm(conn, user["role"], "manage_limits") or user["role"] in ADMIN_ROLES):
+                conn.close()
+                return self.send_json({"error": "Ruxsat yo'q"}, 403)
+            lims, _ = limit_status(conn)
+            # forma uchun yordamchi ro'yxatlar
+            branches = [{"id": b["id"], "name": b["name"]} for b in
+                        conn.execute("SELECT id,name FROM branches ORDER BY name").fetchall()]
+            users = [{"id": u["id"], "name": u["full_name"], "role_label": ROLES.get(u["role"], u["role"])}
+                     for u in conn.execute("SELECT id,full_name,role FROM users ORDER BY full_name").fetchall()]
+            conn.close()
+            return self.send_json({
+                "limits": lims, "month": current_month(),
+                "categories": [c for g in EXPENSE_GROUPS.values() for c in g],
+                "branches": branches, "users": users, "roles": ROLES,
+            })
+
+        if path == "/api/perms":
+            if user["role"] not in ADMIN_ROLES:
+                conn.close()
+                return self.send_json({"error": "Faqat admin"}, 403)
+            matrix = {}
+            for role in ROLES:
+                matrix[role] = {perm: has_perm(conn, role, perm) for perm in PERMS}
+            conn.close()
+            return self.send_json({"roles": ROLES, "perms": PERMS, "matrix": matrix})
 
         if path.startswith("/api/requests/"):
             rid = int(path.rsplit("/", 1)[-1])
@@ -1297,6 +1438,59 @@ class Handler(BaseHTTPRequestHandler):
             conn.close()
             return self.send_json({"ok": True, **saved})
 
+        if path == "/api/limits":
+            conn = db()
+            if not (has_perm(conn, user["role"], "manage_limits") or user["role"] in ADMIN_ROLES):
+                conn.close()
+                return self.send_json({"error": "Ruxsat yo'q"}, 403)
+            data = self.read_json()
+            scope = (data.get("scope") or "").strip()
+            ref = str(data.get("ref") or "").strip()
+            if scope not in ("category", "branch", "user", "role") or not ref:
+                conn.close()
+                return self.send_json({"error": "Doira yoki qiymat noto'g'ri"}, 400)
+            try:
+                amount = float(str(data.get("amount")).replace(" ", "").replace(",", ""))
+            except (TypeError, ValueError):
+                conn.close()
+                return self.send_json({"error": "Noto'g'ri summa"}, 400)
+            conn.execute(
+                "INSERT INTO limits(scope,ref,amount,created_at) VALUES(?,?,?,?) "
+                "ON CONFLICT(scope,ref) DO UPDATE SET amount=excluded.amount",
+                (scope, ref, amount, now()))
+            conn.commit()
+            conn.close()
+            return self.send_json({"ok": True})
+
+        if path.startswith("/api/limits/") and path.endswith("/delete"):
+            conn = db()
+            if not (has_perm(conn, user["role"], "manage_limits") or user["role"] in ADMIN_ROLES):
+                conn.close()
+                return self.send_json({"error": "Ruxsat yo'q"}, 403)
+            lid = _to_int(path.split("/")[3])
+            conn.execute("DELETE FROM limits WHERE id=?", (lid,))
+            conn.commit()
+            conn.close()
+            return self.send_json({"ok": True})
+
+        if path == "/api/perms":
+            if user["role"] not in ADMIN_ROLES:
+                return self.send_json({"error": "Faqat admin"}, 403)
+            data = self.read_json()
+            role = (data.get("role") or "").strip()
+            perm = (data.get("perm") or "").strip()
+            if role not in ROLES or perm not in PERMS:
+                return self.send_json({"error": "Rol yoki ruxsat noto'g'ri"}, 400)
+            allowed = 1 if data.get("allowed") else 0
+            conn = db()
+            conn.execute(
+                "INSERT INTO role_perms(role,perm,allowed) VALUES(?,?,?) "
+                "ON CONFLICT(role,perm) DO UPDATE SET allowed=excluded.allowed",
+                (role, perm, allowed))
+            conn.commit()
+            conn.close()
+            return self.send_json({"ok": True})
+
         # --- Admin/Operator amallari ---
         if path in ("/api/users", "/api/branches") or path.startswith("/api/users/") or path.startswith("/api/branches/"):
             # Qurilishni tugatib filialni faollashtirishni CEO ham tasdiqlay oladi
@@ -1336,20 +1530,24 @@ class Handler(BaseHTTPRequestHandler):
         if not title:
             return self.send_json({"error": "Sarlavha kiritilmadi"}, 400)
 
+        _pconn = db()
         if rtype == "maintenance":
-            # Filial menejeri, AXO, Regmen va Open group ham to'g'ridan-to'g'ri zayavka bera oladi
-            if user["role"] not in ("branch_manager", "axo", "regmen", "open_group", "admin"):
+            if not has_perm(_pconn, user["role"], "create_maintenance"):
+                _pconn.close()
                 return self.send_json({"error": "Bu turdagi zayavkani ocholmaysiz"}, 403)
             status = start_status("maintenance")   # pending_axo
             # Filialni tanlaydi; menejer bo'lsa va tanlamasa — o'z (asosiy) filiali
             branch_id = data.get("branch_id") or user["branch_id"]
         elif rtype == "new_branch":
-            if user["role"] not in ("open_group", "admin"):
-                return self.send_json({"error": "Bu turdagi so'rovni faqat Open group rahbari ochadi"}, 403)
-            status = start_status("new_branch")    # pending_ceo
+            if not has_perm(_pconn, user["role"], "create_new_branch"):
+                _pconn.close()
+                return self.send_json({"error": "Bu turdagi so'rovni ocholmaysiz"}, 403)
+            status = start_status("new_branch")
             branch_id = data.get("branch_id")
         else:
+            _pconn.close()
             return self.send_json({"error": "Noto'g'ri tur"}, 400)
+        _pconn.close()
 
         # Bir nechta rasm (photos[]), eskisiga moslik uchun bittasi (photo) ham qo'llab-quvvatlanadi
         photo_urls = []
@@ -1670,9 +1868,57 @@ class Handler(BaseHTTPRequestHandler):
             "INSERT INTO events(request_id,user_id,action,comment,created_at) VALUES(?,?,?,?,?)",
             (rid, user["id"], "Foto-hisobot topshirdi", f"Jami: {total:,.0f}", now()),
         )
+        # Limit oshgan bo'lsa — Moliyaga bildirish
+        self._notify_limits_exceeded(conn, r, items)
         conn.commit()
         conn.close()
         return self.send_json({"ok": True})
+
+    def _notify_limits_exceeded(self, conn, request_row, items):
+        """Ushbu hisobotdan keyin qaysidir doira (kategoriya/filial/odam/rol) oylik limitdan oshsa,
+        Moliya xodimlariga bildirishnoma yuboradi."""
+        month = current_month()
+        checks = []  # (scope, ref, human)
+        cats = {(it.get("category") or "").strip() for it in items if (it.get("category") or "").strip()}
+        for c in cats:
+            checks.append(("category", c, f"Rasxod turi «{c}»"))
+        if request_row["branch_id"]:
+            checks.append(("branch", str(request_row["branch_id"]), None))
+        checks.append(("user", str(request_row["created_by"]), None))
+        crole = conn.execute("SELECT role FROM users WHERE id=?", (request_row["created_by"],)).fetchone()
+        if crole:
+            checks.append(("role", crole["role"], None))
+        fin_users = [row["id"] for row in conn.execute("SELECT id FROM users WHERE role='finance'").fetchall()]
+        for scope, ref, human in checks:
+            lim = conn.execute("SELECT amount FROM limits WHERE scope=? AND ref=?", (scope, ref)).fetchone()
+            if not lim:
+                continue
+            spent = limit_spent(conn, scope, ref, month)
+            if spent > float(lim["amount"]):
+                label = human or f"{scope.capitalize()} «{limit_ref_label(conn, scope, ref)}»"
+                txt = f"⚠️ {label} oylik limitidan oshdi: {spent:,.0f} / {float(lim['amount']):,.0f} so'm"
+                for uid in fin_users:
+                    add_notification(conn, uid, request_row["id"], txt)
+
+    def _request_over_limit(self, conn, r, over):
+        """Zayavka biror oshib ketgan doiraga tegishlimi? (qizil ko'rsatish uchun)"""
+        if not any(over.values()):
+            return False
+        if r["branch_id"] and str(r["branch_id"]) in over["branch"]:
+            return True
+        if str(r["created_by"]) in over["user"]:
+            return True
+        if over["role"]:
+            u = conn.execute("SELECT role FROM users WHERE id=?", (r["created_by"],)).fetchone()
+            if u and u["role"] in over["role"]:
+                return True
+        if over["category"]:
+            cats = conn.execute(
+                "SELECT DISTINCT ri.category FROM report_items ri JOIN reports rp ON ri.report_id=rp.id "
+                "WHERE rp.request_id=?", (r["id"],)).fetchall()
+            if any((c["category"] or "") in over["category"] for c in cats):
+                return True
+        return False
 
     def add_comment(self, user, path):
         """Zayavkaga izoh (chat). Ko'ra oladigan har kim yoza oladi."""
@@ -1925,6 +2171,7 @@ class Handler(BaseHTTPRequestHandler):
         # ko'p filialli menejer nomi
         if role == "branch_manager" and len(my_branches) > 1:
             branch = ", ".join(b["name"].replace("Zahratun fast-food ", "") for b in my_branches)
+        perms = {p: has_perm(conn, role, p) for p in PERMS}
         conn.close()
         return {
             "id": u["id"],
@@ -1934,8 +2181,10 @@ class Handler(BaseHTTPRequestHandler):
             "role_label": ROLES.get(u["role"], u["role"]),
             "branch": branch,
             "my_branches": my_branches,
-            "can_create_maintenance": role in ("branch_manager", "axo", "regmen", "open_group", "admin"),
-            "can_create_new_branch": role in ("open_group", "admin"),
+            "perms": perms,
+            "is_admin": role in ADMIN_ROLES,
+            "can_create_maintenance": perms.get("create_maintenance", False),
+            "can_create_new_branch": perms.get("create_new_branch", False),
         }
 
 

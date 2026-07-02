@@ -71,6 +71,8 @@ function refreshCurrentView() {
     if (CURRENT_VIEW === "requests") loadRequests();
     else if (CURRENT_VIEW === "stats") loadStats();
     else if (CURRENT_VIEW === "admin") loadAdmin();
+    else if (CURRENT_VIEW === "limits") loadLimits();
+    else if (CURRENT_VIEW === "perms") loadPerms();
     else if (CURRENT_VIEW === "dashboard") loadDashboard();
     if (typeof loadNotifications === "function" && ME) loadNotifications();  // bildirishnomani ham yangilash
 }
@@ -119,6 +121,8 @@ async function showApp() {
     $("#new-maintenance-btn").classList.toggle("hidden", !ME.can_create_maintenance);
     $("#new-branch-btn").classList.toggle("hidden", !ME.can_create_new_branch);
     $("#menu-admin").classList.toggle("hidden", !isAdmin);
+    $("#menu-limits").classList.toggle("hidden", !(ME.perms && ME.perms.manage_limits));
+    $("#menu-perms").classList.toggle("hidden", !isAdmin);
     $("#menu-budget").classList.toggle("hidden", !["finance", "ceo", "admin", "oper"].includes(ME.role));
     $("#menu-assets").classList.toggle("hidden", ME.role === "oper");
     $("#menu-recurring").classList.toggle("hidden", !["axo", "ceo", "admin", "oper"].includes(ME.role));
@@ -166,6 +170,8 @@ function switchView(view, type) {
     if (view === "assets") loadAssets();
     if (view === "recurring") loadRecurring();
     if (view === "suppliers") loadSuppliers();
+    if (view === "limits") loadLimits();
+    if (view === "perms") loadPerms();
     closeDrawer();
 }
 // Dashboard kartasidan zayavkalar ro'yxatiga o'tish (filtr bilan)
@@ -325,11 +331,12 @@ function cardHtml(r) {
     const typeLabel = r.type === "new_branch" ? "Yangi filial" : "Texnik zayavka";
     const actionTag = r.needs_my_action ? `<span class="action-tag">⚡ Siz harakat qiling</span>` : "";
     const escTag = r.escalated ? `<span class="action-tag" style="color:var(--red)">⚠️ Eskalatsiya</span>` : "";
+    const limitTag = r.over_limit ? `<span class="action-tag" style="color:var(--red)">🚫 Limitdan oshgan</span>` : "";
     return `
-    <div class="card ${r.needs_my_action ? "card-action" : ""}" data-id="${r.id}" data-type="${r.type}">
+    <div class="card ${r.needs_my_action ? "card-action" : ""} ${r.over_limit ? "card-over-limit" : ""}" data-id="${r.id}" data-type="${r.type}">
         <div class="card-head">
             <div>
-                <span class="type-tag type-${r.type}">${typeLabel}</span> ${actionTag} ${escTag}
+                <span class="type-tag type-${r.type}">${typeLabel}</span> ${actionTag} ${escTag} ${limitTag}
                 <div class="card-title">${esc(r.title)}</div>
                 <div class="card-meta">
                     <span>#${r.id}</span>
@@ -780,6 +787,99 @@ async function submitNew(type) {
     const { ok, data } = await api("/api/requests", "POST", body);
     if (ok) { closeModal(); refreshCurrentView(); }
     else alert((data && data.error) || "Xatolik");
+}
+
+// ---------------- LIMITLAR ----------------
+let LIMITS_META = null;
+async function loadLimits() {
+    const { data } = await api("/api/limits");
+    if (!data || data.error) { $("#limits-content").innerHTML = `<p class="muted">Ruxsat yo'q.</p>`; return; }
+    LIMITS_META = data;
+    const scopeLabel = { category: "Rasxod turi", branch: "Filial", user: "Xodim", role: "Lavozim" };
+    const rows = (data.limits || []).map((l) => {
+        const cls = l.over ? "overdue" : (l.pct >= 80 ? "deadline" : "ok-tag");
+        return `<tr class="${l.over ? "limit-over" : ""}">
+            <td>${scopeLabel[l.scope] || l.scope}</td>
+            <td>${esc(l.ref_label)}</td>
+            <td>${fmtMoney(l.amount)}</td>
+            <td>${fmtMoney(l.spent)}</td>
+            <td><span class="${cls}">${l.pct}%${l.over ? " ⚠️ oshgan" : ""}</span></td>
+            <td><button class="link-btn" style="color:var(--red)" onclick="deleteLimit(${l.id})">O'chirish</button></td>
+        </tr>`;
+    }).join("");
+    $("#limits-content").innerHTML = `
+        <div class="settings-panel">
+            <p class="muted">🗓 Oylik limit (${fmtDate(data.month + "-01").slice(3)}). Sarflangan summa hisobotlardan hisoblanadi. Limitdan oshsa — Moliyaga bildiriladi va tegishli zayavkalar <span class="overdue">qizil</span> chiqadi.</p>
+            <div class="admin-head"><h3 class="panel-title">Belgilangan limitlar</h3><button class="btn btn-primary btn-sm" onclick="openLimitForm()">+ Limit qo'shish</button></div>
+            <div class="table-wrap"><table class="items-table">
+                <tr><th>Doira</th><th>Nomi</th><th>Limit</th><th>Sarflandi (shu oy)</th><th>%</th><th></th></tr>
+                ${rows || `<tr><td colspan="6" class="muted">Hali limit yo'q. "+ Limit qo'shish" bilan boshlang.</td></tr>`}
+            </table></div>
+        </div>`;
+}
+function openLimitForm() {
+    showModal(`
+        <button class="modal-close" onclick="closeModal()">&times;</button>
+        <h3>Limit qo'shish / o'zgartirish</h3>
+        <div class="field"><label>Doira turi</label>
+            <select id="lim-scope" onchange="renderLimRef()">
+                <option value="category">Rasxod turi (masalan IT обеспечение)</option>
+                <option value="branch">Filial</option>
+                <option value="user">Xodim (odam)</option>
+                <option value="role">Lavozim (rol)</option>
+            </select></div>
+        <div class="field"><label>Nimaga?</label><div id="lim-ref-box"></div></div>
+        <div class="field"><label>Oylik limit (so'm)</label><input type="text" inputmode="numeric" id="lim-amount" placeholder="Masalan: 20 000 000" oninput="formatMoneyInput(this)"></div>
+        <div class="modal-actions">
+            <button class="btn btn-ghost" onclick="closeModal()">Bekor</button>
+            <button class="btn btn-primary" onclick="saveLimit()">💾 Saqlash</button>
+        </div>`);
+    renderLimRef();
+}
+function renderLimRef() {
+    const scope = $("#lim-scope").value, d = LIMITS_META || {};
+    let opts = "";
+    if (scope === "category") opts = (d.categories || []).map((c) => `<option value="${esc(c)}">${esc(c)}</option>`).join("");
+    else if (scope === "branch") opts = (d.branches || []).map((b) => `<option value="${b.id}">${esc(b.name)}</option>`).join("");
+    else if (scope === "user") opts = (d.users || []).map((u) => `<option value="${u.id}">${esc(u.name)} (${esc(u.role_label)})</option>`).join("");
+    else if (scope === "role") opts = Object.entries(d.roles || {}).map(([k, v]) => `<option value="${k}">${esc(v)}</option>`).join("");
+    $("#lim-ref-box").innerHTML = `<select id="lim-ref">${opts}</select>`;
+}
+async function saveLimit() {
+    const scope = $("#lim-scope").value, ref = $("#lim-ref").value;
+    const amount = $("#lim-amount").value.replace(/\s/g, "");
+    if (!ref) { alert("Nimaga limit qo'yilishini tanlang"); return; }
+    if (!amount || isNaN(parseFloat(amount))) { alert("To'g'ri summa kiriting"); return; }
+    const { ok, data } = await api("/api/limits", "POST", { scope, ref, amount });
+    if (ok) { closeModal(); loadLimits(); }
+    else alert((data && data.error) || "Xatolik");
+}
+async function deleteLimit(id) {
+    if (!confirm("Bu limitni o'chirasizmi?")) return;
+    const { ok } = await api(`/api/limits/${id}/delete`, "POST", {});
+    if (ok) loadLimits();
+}
+
+// ---------------- RUXSATLAR (rol qobiliyatlari) ----------------
+async function loadPerms() {
+    const { data } = await api("/api/perms");
+    if (!data || data.error) { $("#perms-content").innerHTML = `<p class="muted">Ruxsat yo'q.</p>`; return; }
+    const perms = data.perms, roles = data.roles, matrix = data.matrix;
+    const permKeys = Object.keys(perms);
+    const head = `<tr><th>Rol</th>${permKeys.map((p) => `<th style="font-size:12px">${esc(perms[p])}</th>`).join("")}</tr>`;
+    const body = Object.entries(roles).map(([rk, rlabel]) => `
+        <tr><td><b>${esc(rlabel)}</b></td>
+        ${permKeys.map((p) => `<td style="text-align:center"><input type="checkbox" ${matrix[rk][p] ? "checked" : ""} onchange="togglePerm('${rk}','${p}',this.checked)"></td>`).join("")}
+        </tr>`).join("");
+    $("#perms-content").innerHTML = `
+        <div class="settings-panel">
+            <p class="muted">Har bir rol nima qila olishini belgilang. Belgini olib tashlasangiz — o'sha rol shu amalni bajara olmaydi. (O'zgarish darhol saqlanadi.)</p>
+            <div class="table-wrap"><table class="items-table">${head}${body}</table></div>
+        </div>`;
+}
+async function togglePerm(role, perm, allowed) {
+    const { ok, data } = await api("/api/perms", "POST", { role, perm, allowed });
+    if (!ok) { alert((data && data.error) || "Xatolik"); loadPerms(); }
 }
 
 // ---------------- DASHBOARD ----------------
