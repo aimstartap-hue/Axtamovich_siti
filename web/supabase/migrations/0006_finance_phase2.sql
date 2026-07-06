@@ -8,8 +8,11 @@
 -- category = '' bo'lsa — filialning umumiy byudjeti (avvalgidek).
 alter table budgets add column if not exists category text not null default '';
 alter table budgets drop constraint if exists budgets_branch_id_month_key;
-alter table budgets add constraint budgets_branch_month_cat_key
-  unique (branch_id, month, category);
+do $$ begin
+  if not exists (select 1 from pg_constraint where conname = 'budgets_branch_month_cat_key') then
+    alter table budgets add constraint budgets_branch_month_cat_key unique (branch_id, month, category);
+  end if;
+end $$;
 
 -- --- Punkt 16: to'lov holati -------------------------------------------------
 alter table requests add column if not exists paid boolean not null default false;
