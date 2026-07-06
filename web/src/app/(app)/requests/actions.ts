@@ -362,6 +362,35 @@ export async function markPaidAction(formData: FormData) {
   revalidatePath("/requests");
 }
 
+// --- Ochilishni yakunlash: filial yaratish + 1-oy byudjeti + topshirish (O-16, O-24) ---
+export async function completeOpeningAction(formData: FormData) {
+  const profile = await getProfile();
+  if (!profile?.org_id) return;
+  if (!["open_group", "admin", "ops_director"].includes(profile.role)) return;
+  const sb = await createClient();
+  const id = Number(formData.get("id"));
+  const r = await loadReq(sb, id);
+  if (!r || r.type !== "new_branch" || r.status !== "closed") return;
+  const name = String(formData.get("branch_name") || "").trim();
+  if (!name) return;
+  const budget = Number(String(formData.get("budget") || "0").replace(/[^\d]/g, ""));
+
+  const { data: br } = await sb.from("branches").insert({ org_id: profile.org_id, name, status: "active" }).select("id").single();
+  if (!br) return;
+  // Ochilish jihozlarini (aktivlarni) yangi filialga bog'lash
+  await sb.from("assets").update({ branch_id: br.id }).eq("org_id", profile.org_id).is("branch_id", null).eq("note", `Ochilish: ${r.title}`);
+  // 1-oy byudjeti
+  if (budget > 0) {
+    const month = new Date().toISOString().slice(0, 7);
+    await sb.from("budgets").upsert(
+      { org_id: profile.org_id, branch_id: br.id, month, category: "", amount: budget }, { onConflict: "branch_id,month,category" });
+  }
+  await logEvent(sb, r.org_id, id, profile.id, `Filial "${name}" faollashtirildi va topshirildi`);
+  revalidatePath(`/requests/${id}`);
+  revalidatePath("/openings");
+  revalidatePath("/budgets");
+}
+
 // --- Zayavkani takrorlash (o'sha muammo yana bo'ldi) ------------------------
 export async function duplicateRequestAction(formData: FormData) {
   const profile = await getProfile();

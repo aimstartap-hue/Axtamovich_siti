@@ -23,8 +23,8 @@ Foydalanuvchi: **13 (ochilish shabloni)дан tashqari hammasini**. Har biri mol
 - [x] **15.** Ochilish jihozlarini avtomat aktivga (assets) yozish ✅ (hisobotда, >=500k)
 - [x] **20.** Ochilish smetadan oshsa ogohlantirish ✅ (open_group+moliya+ceo)
 - [x] **18/23.** Muddat/kechikish — /openings da kun ko'rsatiladi ✅
-- [ ] **16.** Ochilishdan keyin menejerga topshirish (handover) — O-3 (filial yaratish bilan)
-- [ ] **14.** Ta'minotchi tanlash (eng arzon taklifi)
+- [x] **16 + 24.** Ochilishni yakunlash → filial yaratish + jihozlarni bog'lash + 1-oy byudjeti + topshirish ✅
+- [x] **14.** Ta'minotchi tavsiyasi — benchmarkda "eng arzon" ta'minotchi ✅
 
 ## Phase O-3 — 0007 migratsiya kerak (foydalanuvchi ishtiroki OXIRIDA)
 - [ ] **11.** Ochilish bosqichlari checklist (opening_stages jsonb)

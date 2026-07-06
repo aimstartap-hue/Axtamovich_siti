@@ -12,7 +12,7 @@ import type { RequestRow } from "@/lib/types";
 import ActionPanel from "./ActionPanel";
 import CommentBox from "./CommentBox";
 import RatingBox from "./RatingBox";
-import { duplicateRequestAction, markPaidAction } from "../actions";
+import { duplicateRequestAction, markPaidAction, completeOpeningAction } from "../actions";
 
 export default async function RequestDetail({ params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;
@@ -71,16 +71,16 @@ export default async function RequestDetail({ params }: { params: Promise<{ id: 
   // Narx benchmark (punkt 21) — faqat moliya/rahbariyatga ko'rinadi.
   // Bir xil mahsulotni (kategoriya + nom) oldin qanchaga olganini topib, % farqni ko'rsatadi.
   const financeView = ["finance", "admin", "ceo", "ops_director", "oper"].includes(profile.role);
-  type Bench = { name: string; current: number; prev: number; prevDate: string; prevReq: number; deltaPct: number };
+  type Bench = { name: string; current: number; prev: number; prevDate: string; prevReq: number; deltaPct: number; bestPrice: number; bestSupplier: string | null };
   const priceBench: Bench[] = [];
   const reportItems = (report?.items ?? []) as { name: string; category: string | null; price: number }[];
   if (financeView && report && reportItems.length) {
-    const { data: hist } = await sb.from("report_items").select("name, category, price, report:reports(created_at, request_id)");
+    const { data: hist } = await sb.from("report_items").select("name, category, price, supplier, report:reports(created_at, request_id)");
     const norm = (s: string | null | undefined) => (s ?? "").trim().toLowerCase();
     const reportDate = new Date(report.created_at).getTime();
     for (const it of reportItems) {
       const matches = (hist ?? [])
-        .map((h) => h as unknown as { name: string; category: string | null; price: number; report: { created_at: string; request_id: number } | null })
+        .map((h) => h as unknown as { name: string; category: string | null; price: number; supplier: string | null; report: { created_at: string; request_id: number } | null })
         .filter((h) => h.report && h.report.request_id !== req.id
           && norm(h.name) === norm(it.name) && norm(h.category) === norm(it.category)
           && new Date(h.report.created_at).getTime() < reportDate);
@@ -88,7 +88,12 @@ export default async function RequestDetail({ params }: { params: Promise<{ id: 
       matches.sort((a, b) => new Date(b.report!.created_at).getTime() - new Date(a.report!.created_at).getTime());
       const prev = matches[0];
       const deltaPct = prev.price ? Math.round(((it.price - prev.price) / prev.price) * 100) : 0;
-      priceBench.push({ name: it.name, current: it.price, prev: prev.price, prevDate: prev.report!.created_at, prevReq: prev.report!.request_id, deltaPct });
+      // Eng arzon tarixiy taklif (punkt 14 — ta'minotchi tavsiyasi)
+      const cheapest = matches.reduce((m, x) => (x.price > 0 && x.price < m.price ? x : m), matches[0]);
+      priceBench.push({
+        name: it.name, current: it.price, prev: prev.price, prevDate: prev.report!.created_at,
+        prevReq: prev.report!.request_id, deltaPct, bestPrice: cheapest.price, bestSupplier: cheapest.supplier,
+      });
     }
   }
 
@@ -148,6 +153,24 @@ export default async function RequestDetail({ params }: { params: Promise<{ id: 
 
       {/* Amallar */}
       <ActionPanel req={req} profile={profile} budget={budgetInfo} />
+
+      {/* Ochilishni yakunlash → filial yaratish (O-16, O-24) */}
+      {req.type === "new_branch" && req.status === "closed" && ["open_group", "admin", "ops_director"].includes(profile.role) && (
+        <form action={completeOpeningAction} className="card p-5 space-y-3 border-brand/40">
+          <h2 className="font-semibold">🏁 Ochilishni yakunlash</h2>
+          <p className="text-xs text-muted">Yangi filial yaratiladi, ochilish jihozlari unga bog'lanadi va 1-oy byudjeti qo'yiladi.</p>
+          <input type="hidden" name="id" value={req.id} />
+          <div>
+            <label className="label">Filial nomi</label>
+            <input name="branch_name" className="input" defaultValue={req.title.replace(/^\[DEMO\]\s*/, "")} required />
+          </div>
+          <div>
+            <label className="label">1-oy byudjeti (so'm, ixtiyoriy)</label>
+            <input name="budget" type="number" className="input" placeholder="0" />
+          </div>
+          <button className="btn btn-brand">Filialni faollashtirish va topshirish</button>
+        </form>
+      )}
 
       {/* Baho (yopilgach, yaratgan menejer) + takrorlash */}
       {(isMine || isClosed(req.status)) && (
@@ -248,6 +271,11 @@ export default async function RequestDetail({ params }: { params: Promise<{ id: 
                       {up ? "▲ +" : b.deltaPct < 0 ? "▼ " : ""}{b.deltaPct}% {up && b.deltaPct >= 30 ? "⚠️" : ""}
                     </span>
                   </div>
+                  {b.bestPrice < b.current && b.bestSupplier && (
+                    <div className="w-full text-xs text-success">
+                      💡 Eng arzon: {formatMoney(b.bestPrice)} — {b.bestSupplier}
+                    </div>
+                  )}
                 </div>
               );
             })}
