@@ -16,11 +16,11 @@ Foydalanuvchi tanlagan va izohlagan punktlar. **Belgilanmagan/izohlanmaganlar KE
 - [x] **9.** Hisobot yaxlitligi: `reports.total` = Σ(qty×price) server tomonда kafolat ✅ (avvaldan)
 
 ### 🟡 Muhim
-- [ ] **10.** Kategoriya bo'yicha xarajat dashboardi (org kesim)
-- [ ] **11.** Supplier analitikasi (top ta'minotchilar, har biriga sarf)
-- [ ] **12.** Oylar kesimida trend grafigi
+- [x] **10.** Kategoriya bo'yicha xarajat dashboardi (org kesim) ✅ Phase 2B (/analytics)
+- [x] **11.** Supplier analitikasi (top ta'minotchilar, har biriga sarf) ✅ Phase 2B
+- [x] **12.** Oylar kesimida trend grafigi ✅ Phase 2B
 - [ ] **13.** Byudjet/limit ogohlantirishi (80% va 100% da moliyaga bildirishnoma)
-- [ ] **14.** Excel/CSV eksport (byudjet, limit, xarajat)
+- [x] **14.** Excel/CSV eksport (analitikada kategoriya/ta'minotchi) ✅ Phase 2B
 - [ ] **16.** To'lov holati (paid vs approved), to'langan sana
 - [ ] **17.** Byudjet nusxalash + **bir martaga yillik byudjet qo'yish**
 - [ ] **18.** CEO chegarasini **faqat admin** belgilaydi; admin moliyaga ham bu huquqni bera oladi
@@ -34,7 +34,7 @@ Foydalanuvchi tanlagan va izohlagan punktlar. **Belgilanmagan/izohlanmaganlar KE
       havola (silka) bo'lsin, moliya bosib o'shani ham ko'ra olsin.
 - [ ] **23.** Filial "sarf tezligi" (burn rate) prognozi
 - [x] **24.** Narx/summa maydonlariga mingliklar ajratkichi (`NumberInput`: hisobot + tasdiq oynasi + limit) ✅ Phase 1
-- [ ] **25.** Rad etilgan zayavkalar sabablari statistikasi
+- [x] **25.** Rad etilgan zayavkalar sabablari statistikasi ✅ Phase 2B (/analytics)
 
 ## Chiqarib tashlangan
 - ~~15. Soliq alohida hisobi~~

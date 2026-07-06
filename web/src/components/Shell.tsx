@@ -6,12 +6,15 @@ import { useState } from "react";
 import { ROLES, type Role } from "@/lib/constants";
 import { logoutAction } from "@/app/(auth)/actions";
 
-interface NavItem { href: string; label: string; icon: string; }
+interface NavItem { href: string; label: string; icon: string; roles?: Role[]; }
+
+const FINANCE_ROLES: Role[] = ["admin", "oper", "ceo", "finance", "ops_director"];
 
 const NAV: NavItem[] = [
   { href: "/", label: "Bosh sahifa", icon: "🏠" },
   { href: "/requests", label: "Zayavkalar", icon: "📋" },
   { href: "/budgets", label: "Byudjet", icon: "💰" },
+  { href: "/analytics", label: "Moliya", icon: "📈", roles: FINANCE_ROLES },
   { href: "/assets", label: "Aktivlar", icon: "🧰" },
   { href: "/limits", label: "Limitlar", icon: "📊" },
   { href: "/admin", label: "Sozlamalar", icon: "⚙️" },
@@ -30,6 +33,7 @@ export default function Shell({
   const [menuOpen, setMenuOpen] = useState(false);
   const isActive = (href: string) =>
     href === "/" ? pathname === "/" : pathname.startsWith(href);
+  const nav = NAV.filter((n) => !n.roles || n.roles.includes(role));
 
   function toggleTheme() {
     const el = document.documentElement;
@@ -47,7 +51,7 @@ export default function Shell({
           <div className="text-xs text-muted truncate">{orgName}</div>
         </div>
         <nav className="flex-1 p-2 space-y-1">
-          {NAV.map((n) => (
+          {nav.map((n) => (
             <Link key={n.href} href={n.href}
               className={`flex items-center gap-3 px-3 py-2 rounded-lg text-sm font-medium transition ${
                 isActive(n.href) ? "bg-brand text-brand-fg" : "hover:bg-surface-2 text-text"
@@ -85,7 +89,7 @@ export default function Shell({
         {/* Mobile menu drawer */}
         {menuOpen && (
           <div className="md:hidden border-b border-border bg-surface p-2 space-y-1">
-            {NAV.map((n) => (
+            {nav.map((n) => (
               <Link key={n.href} href={n.href} onClick={() => setMenuOpen(false)}
                 className={`flex items-center gap-3 px-3 py-2 rounded-lg text-sm font-medium ${
                   isActive(n.href) ? "bg-brand text-brand-fg" : "hover:bg-surface-2"
@@ -100,7 +104,7 @@ export default function Shell({
 
         {/* Bottom nav (mobile) */}
         <nav className="md:hidden fixed bottom-0 inset-x-0 z-20 flex border-t border-border bg-surface">
-          {NAV.slice(0, 5).map((n) => (
+          {nav.slice(0, 5).map((n) => (
             <Link key={n.href} href={n.href}
               className={`flex-1 flex flex-col items-center py-2 text-[11px] ${
                 isActive(n.href) ? "text-brand" : "text-muted"
