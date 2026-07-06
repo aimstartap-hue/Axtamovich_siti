@@ -9,11 +9,13 @@ import { logoutAction } from "@/app/(auth)/actions";
 interface NavItem { href: string; label: string; icon: string; roles?: Role[]; }
 
 const FINANCE_ROLES: Role[] = ["admin", "oper", "ceo", "finance", "ops_director"];
+const OPENING_ROLES: Role[] = ["open_group", "admin", "oper", "ceo", "finance", "ops_director"];
 
 const NAV: NavItem[] = [
   { href: "/", label: "Bosh sahifa", icon: "🏠" },
   { href: "/requests", label: "Zayavkalar", icon: "📋" },
   { href: "/budgets", label: "Byudjet", icon: "💰" },
+  { href: "/openings", label: "Ochilish", icon: "🏗", roles: OPENING_ROLES },
   { href: "/analytics", label: "Moliya", icon: "📈", roles: FINANCE_ROLES },
   { href: "/assets", label: "Aktivlar", icon: "🧰" },
   { href: "/limits", label: "Limitlar", icon: "📊" },
