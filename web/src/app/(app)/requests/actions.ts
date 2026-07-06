@@ -255,6 +255,31 @@ export async function submitReportAction(formData: FormData) {
   await sb.from("requests").update(patch).eq("id", id);
   await logEvent(sb, r.org_id, id, profile.id, "Hisobot topshirildi");
   await notifyRoles(sb, r.org_id, NOTIFY_ROLES[nextStatus] ?? [], id, `Hisobot topshirildi: #${id}`);
+
+  // Byudjet ogohlantirishi (punkt 13): filial byudjeti 80%/100% dan oshsa moliyaga xabar.
+  if (r.branch_id) {
+    const month = new Date().toISOString().slice(0, 7);
+    const [{ data: bud }, { data: reps }, { data: br }] = await Promise.all([
+      sb.from("budgets").select("amount").eq("branch_id", r.branch_id).eq("month", month).maybeSingle(),
+      sb.from("reports").select("total, created_at, request:requests(branch_id)"),
+      sb.from("branches").select("name").eq("id", r.branch_id).maybeSingle(),
+    ]);
+    const budget = Number(bud?.amount ?? 0);
+    if (budget > 0) {
+      const spent = (reps ?? []).reduce((s, x) => {
+        const rr = x as unknown as { total: number; created_at: string; request: { branch_id: number } | null };
+        return rr.request?.branch_id === r.branch_id && rr.created_at?.startsWith(month) ? s + (rr.total || 0) : s;
+      }, 0);
+      const ratio = spent / budget;
+      const name = (br as { name?: string } | null)?.name ?? `#${r.branch_id}`;
+      if (ratio >= 1) {
+        await notifyRoles(sb, r.org_id, ["finance", "ops_director"], id, `⚠️ ${name} filial byudjeti oshib ketdi (${Math.round(ratio * 100)}%)`);
+      } else if (ratio >= 0.8) {
+        await notifyRoles(sb, r.org_id, ["finance", "ops_director"], id, `${name} filial byudjeti ${Math.round(ratio * 100)}% ga yetdi`);
+      }
+    }
+  }
+
   revalidatePath(`/requests/${id}`);
   return { ok: true };
 }

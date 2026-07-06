@@ -19,7 +19,7 @@ Foydalanuvchi tanlagan va izohlagan punktlar. **Belgilanmagan/izohlanmaganlar KE
 - [x] **10.** Kategoriya bo'yicha xarajat dashboardi (org kesim) ✅ Phase 2B (/analytics)
 - [x] **11.** Supplier analitikasi (top ta'minotchilar, har biriga sarf) ✅ Phase 2B
 - [x] **12.** Oylar kesimida trend grafigi ✅ Phase 2B
-- [ ] **13.** Byudjet/limit ogohlantirishi (80% va 100% da moliyaga bildirishnoma)
+- [x] **13.** Byudjet ogohlantirishi: hisobotда filial byudjeti 80%/100% oshsa moliyaga bildirishnoma ✅ Phase 2C
 - [x] **14.** Excel/CSV eksport (analitikada kategoriya/ta'minotchi) ✅ Phase 2B
 - [ ] **16.** To'lov holati (paid vs approved), to'langan sana
 - [ ] **17.** Byudjet nusxalash + **bir martaga yillik byudjet qo'yish**
