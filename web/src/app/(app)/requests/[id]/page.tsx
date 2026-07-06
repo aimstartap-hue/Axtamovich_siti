@@ -68,6 +68,30 @@ export default async function RequestDetail({ params }: { params: Promise<{ id: 
 
   const isMine = req.created_by === profile.id;
 
+  // Narx benchmark (punkt 21) — faqat moliya/rahbariyatga ko'rinadi.
+  // Bir xil mahsulotni (kategoriya + nom) oldin qanchaga olganini topib, % farqni ko'rsatadi.
+  const financeView = ["finance", "admin", "ceo", "ops_director", "oper"].includes(profile.role);
+  type Bench = { name: string; current: number; prev: number; prevDate: string; prevReq: number; deltaPct: number };
+  const priceBench: Bench[] = [];
+  const reportItems = (report?.items ?? []) as { name: string; category: string | null; price: number }[];
+  if (financeView && report && reportItems.length) {
+    const { data: hist } = await sb.from("report_items").select("name, category, price, report:reports(created_at, request_id)");
+    const norm = (s: string | null | undefined) => (s ?? "").trim().toLowerCase();
+    const reportDate = new Date(report.created_at).getTime();
+    for (const it of reportItems) {
+      const matches = (hist ?? [])
+        .map((h) => h as unknown as { name: string; category: string | null; price: number; report: { created_at: string; request_id: number } | null })
+        .filter((h) => h.report && h.report.request_id !== req.id
+          && norm(h.name) === norm(it.name) && norm(h.category) === norm(it.category)
+          && new Date(h.report.created_at).getTime() < reportDate);
+      if (!matches.length) continue;
+      matches.sort((a, b) => new Date(b.report!.created_at).getTime() - new Date(a.report!.created_at).getTime());
+      const prev = matches[0];
+      const deltaPct = prev.price ? Math.round(((it.price - prev.price) / prev.price) * 100) : 0;
+      priceBench.push({ name: it.name, current: it.price, prev: prev.price, prevDate: prev.report!.created_at, prevReq: prev.report!.request_id, deltaPct });
+    }
+  }
+
   return (
     <div className="max-w-3xl mx-auto space-y-4">
       <Link href="/requests" className="text-sm text-brand">← Zayavkalar</Link>
@@ -166,6 +190,49 @@ export default async function RequestDetail({ params }: { params: Promise<{ id: 
             </div>
           )}
           <div className="text-right font-semibold mt-2">Jami: {formatMoney(report.total)}</div>
+
+          {/* Reja vs Fakt — variance (punkt 6) */}
+          {req.estimated_amount != null && (() => {
+            const est = Number(req.estimated_amount);
+            const diff = report.total - est;
+            const pct = est ? Math.round((diff / est) * 100) : 0;
+            const over = diff > 0;
+            return (
+              <div className="flex flex-wrap justify-between gap-x-4 text-xs mt-1 border-t border-border pt-2">
+                <span className="text-muted">Reja (AXO): {formatMoney(est)}</span>
+                <span className={over ? "text-danger font-semibold" : "text-success font-semibold"}>
+                  Farq: {over ? "+" : ""}{formatMoney(diff)} ({over ? "+" : ""}{pct}%)
+                </span>
+              </div>
+            );
+          })()}
+        </div>
+      )}
+
+      {/* Narx benchmark — faqat moliya/rahbariyat (punkt 21) */}
+      {priceBench.length > 0 && (
+        <div className="card p-5 border-amber-400/40">
+          <h2 className="font-semibold mb-1">💰 Narx solishtiruvi <span className="text-xs text-muted font-normal">(faqat moliya)</span></h2>
+          <p className="text-xs text-muted mb-3">Bu mahsulotlar oldin ham olingan — narx o'zgarishi:</p>
+          <div className="space-y-2">
+            {priceBench.map((b, i) => {
+              const up = b.deltaPct > 0;
+              return (
+                <div key={i} className="flex flex-wrap items-center justify-between gap-2 text-sm border-t border-border pt-2 first:border-0 first:pt-0">
+                  <div className="font-medium">{b.name}</div>
+                  <div className="flex items-center gap-3 text-xs">
+                    <Link href={`/requests/${b.prevReq}`} className="text-brand">
+                      #{b.prevReq}: {formatMoney(b.prev)} ({formatDate(b.prevDate)})
+                    </Link>
+                    <span>→ {formatMoney(b.current)}</span>
+                    <span className={`font-semibold ${up ? "text-danger" : b.deltaPct < 0 ? "text-success" : "text-muted"}`}>
+                      {up ? "▲ +" : b.deltaPct < 0 ? "▼ " : ""}{b.deltaPct}% {up && b.deltaPct >= 30 ? "⚠️" : ""}
+                    </span>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
         </div>
       )}
 

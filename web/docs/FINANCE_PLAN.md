@@ -10,7 +10,7 @@ Foydalanuvchi tanlagan va izohlagan punktlar. **Belgilanmagan/izohlanmaganlar KE
 - [x] **3.** "Majburiyat (committed)" vs "sarflangan" farqi (tasdiqlangan, hali hisobot yo'q) ✅ Phase 1
 - [ ] **4.** Valyuta normalizatsiyasi (USD→so'm) — **CBU API'дан avtomat** (Phase 2)
 - [x] **5.** Limit `ref` dropdown (filial/user/rol tanlov, qo'lда yozish emas) ✅ Phase 1
-- [ ] **6.** Reja (estimated) vs Fakt (report total) — variance ustuni/hisobot
+- [x] **6.** Reja (estimated) vs Fakt (report total) — variance hisobot kartasida ✅ Phase 2
 - [ ] **7.** Byudjetni kategoriya bo'yicha bo'lish — **filial + kategoriya** (Phase 2, 0006 migratsiya kerak)
 - [x] **8.** Rollup ko'rinishlari: **umumiy (org) + filial + lavozim (rol)** — uchalasi ✅ Phase 1
 - [x] **9.** Hisobot yaxlitligi: `reports.total` = Σ(qty×price) server tomonда kafolat ✅ (avvaldan)
@@ -28,7 +28,7 @@ Foydalanuvchi tanlagan va izohlagan punktlar. **Belgilanmagan/izohlanmaganlar KE
 ### 🟢 Foydali
 - [ ] **19.** Byudjet/limit o'zgarishlari auditi (kim, qachon, qancha)
 - [ ] **20.** Yillik byudjet ko'rinishi + **Excel'дан avtomat import (tortish)**
-- [ ] **21.** Takroriy/o'xshash xarajat aniqlash — *savol: nimaga qarab*
+- [x] **21.** Narx benchmark: bir xil mahsulot (kat+nom) oldingi narx bilan %-solishtiruv, faqat moliyaga, oldingi zayavkaga havola ✅ Phase 2
       Misol: pitsa pech filial 6 ga 2 000 000, 1 oydan keyin filial 7 ga 3 000 000.
       AXO hisobot topshirganда **faqat moliyaga** ko'rinsin + oldingi bog'liq zayavkaga
       havola (silka) bo'lsin, moliya bosib o'shani ham ko'ra olsin.
