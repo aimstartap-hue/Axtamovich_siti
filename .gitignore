@@ -14,3 +14,8 @@ Thumbs.db
 .DS_Store
 .vscode/
 .idea/
+
+# Maxfiy — login/parol fayllari va Excel vaqtinchalik lock fayllari
+login_parollar.xlsx
+~$*
+*.xlsx
