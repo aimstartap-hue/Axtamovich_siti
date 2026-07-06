@@ -33,6 +33,12 @@ export default async function BudgetsPage({ searchParams }: { searchParams: Prom
   const month = sp.month || currentMonth();
   const sb = await createClient();
 
+  // Sarf tezligi (burn rate) prognozi uchun — oyning qancha qismi o'tgani (punkt 23)
+  const now = new Date();
+  const isCurrentMonth = month === currentMonth();
+  const daysInMonth = new Date(now.getFullYear(), now.getMonth() + 1, 0).getDate();
+  const elapsed = isCurrentMonth ? now.getDate() / daysInMonth : 1;
+
   const [{ data: branches }, { data: budgets }, { data: reports }, { data: commits }] = await Promise.all([
     sb.from("branches").select("id, name").order("name"),
     sb.from("budgets").select("*").eq("month", month),
@@ -143,6 +149,15 @@ export default async function BudgetsPage({ searchParams }: { searchParams: Prom
                       Qoldiq: {formatMoney(remaining)} ({pct}%)
                     </span>
                   </div>
+                  {isCurrentMonth && spent > 0 && elapsed > 0 && (() => {
+                    const projected = Math.round(spent / elapsed);
+                    const willOver = projected > budget;
+                    return (
+                      <div className={`text-xs mt-1 ${willOver ? "text-danger" : "text-muted"}`}>
+                        Bu tezlikda oy oxiriga: {formatMoney(projected)} — {willOver ? "byudjetdan oshadi ⚠️" : "byudjetga sig'adi"}
+                      </div>
+                    );
+                  })()}
                 </>
               )}
             </div>

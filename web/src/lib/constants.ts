@@ -28,6 +28,7 @@ export const PERMS: Record<string, string> = {
   view_analytics: "Hisobot va analitikani ko'rish",
   manage_limits: "Limitlar bo'limini boshqarish",
   manage_settings: "Sozlamalar (admin) bo'limi",
+  manage_ceo_threshold: "CEO summa chegarasini belgilash",
 };
 
 export const DEFAULT_PERMS: Record<string, Role[]> = {
@@ -36,6 +37,7 @@ export const DEFAULT_PERMS: Record<string, Role[]> = {
   view_analytics: ["admin", "oper", "ceo", "finance", "ops_director", "open_group", "regmen"],
   manage_limits: ["admin", "oper", "ceo", "finance"],
   manage_settings: ["admin", "oper"],
+  manage_ceo_threshold: ["admin"],
 };
 
 // Status nomlari (UI uchun)

@@ -23,7 +23,7 @@ Foydalanuvchi tanlagan va izohlagan punktlar. **Belgilanmagan/izohlanmaganlar KE
 - [x] **14.** Excel/CSV eksport (analitikada kategoriya/ta'minotchi) ✅ Phase 2B
 - [ ] **16.** To'lov holati (paid vs approved), to'langan sana
 - [ ] **17.** Byudjet nusxalash + **bir martaga yillik byudjet qo'yish**
-- [ ] **18.** CEO chegarasini **faqat admin** belgilaydi; admin moliyaga ham bu huquqni bera oladi
+- [x] **18.** CEO chegarasi: admin belgilaydi (avvaldan) + `manage_ceo_threshold` huquqi orqali moliyaga ham berish (analitikada tahrir) ✅ Phase 2C
 
 ### 🟢 Foydali
 - [ ] **19.** Byudjet/limit o'zgarishlari auditi (kim, qachon, qancha)
@@ -32,7 +32,7 @@ Foydalanuvchi tanlagan va izohlagan punktlar. **Belgilanmagan/izohlanmaganlar KE
       Misol: pitsa pech filial 6 ga 2 000 000, 1 oydan keyin filial 7 ga 3 000 000.
       AXO hisobot topshirganда **faqat moliyaga** ko'rinsin + oldingi bog'liq zayavkaga
       havola (silka) bo'lsin, moliya bosib o'shani ham ko'ra olsin.
-- [ ] **23.** Filial "sarf tezligi" (burn rate) prognozi
+- [x] **23.** Filial "sarf tezligi" (burn rate) — oy oxiri prognozi byudjet sahifasida ✅ Phase 2C
 - [x] **24.** Narx/summa maydonlariga mingliklar ajratkichi (`NumberInput`: hisobot + tasdiq oynasi + limit) ✅ Phase 1
 - [x] **25.** Rad etilgan zayavkalar sabablari statistikasi ✅ Phase 2B (/analytics)
 

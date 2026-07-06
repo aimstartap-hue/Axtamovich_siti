@@ -4,7 +4,9 @@ import { requireProfile } from "@/lib/auth";
 import { createClient } from "@/lib/supabase/server";
 import { formatMoney } from "@/lib/format";
 import { formatDate } from "@/lib/workflow";
+import { roleHasPerm } from "@/lib/perms";
 import ExportCsv from "@/components/ExportCsv";
+import { saveThreshold } from "./actions";
 
 const FINANCE_ROLES = ["admin", "oper", "ceo", "finance", "ops_director"];
 
@@ -19,11 +21,14 @@ export default async function AnalyticsPage() {
   if (!FINANCE_ROLES.includes(profile.role)) redirect("/");
   const sb = await createClient();
 
-  const [{ data: items }, { data: reports }, { data: rejects }] = await Promise.all([
+  const [{ data: items }, { data: reports }, { data: rejects }, { data: thr }] = await Promise.all([
     sb.from("report_items").select("category, supplier, qty, price"),
     sb.from("reports").select("total, created_at"),
     sb.from("events").select("comment, created_at, request:requests(id, title)").eq("action", "Rad etdi").order("id", { ascending: false }).limit(30),
+    sb.from("org_settings").select("value").eq("key", "ceo_threshold").maybeSingle(),
   ]);
+  const canSetThreshold = await roleHasPerm(sb, profile.org_id, profile.role, "manage_ceo_threshold");
+  const ceoThreshold = thr?.value ?? "50000000";
 
   // Kategoriya bo'yicha sarf (punkt 10)
   const byCat = new Map<string, number>();
@@ -58,6 +63,19 @@ export default async function AnalyticsPage() {
   return (
     <div className="space-y-4">
       <h1 className="text-xl font-bold">Moliya analitikasi</h1>
+
+      {/* CEO chegarasi — huquq berilган rollarga (punkt 18) */}
+      {canSetThreshold && (
+        <div className="card p-4">
+          <h2 className="font-semibold mb-1">CEO tasdig'i chegarasi</h2>
+          <p className="text-xs text-muted mb-3">Bu summadan katta zayavkalar avval CEO tasdig'iga boradi.</p>
+          <form action={saveThreshold} className="flex flex-wrap items-end gap-2">
+            <input name="ceo_threshold" type="number" className="input w-48" defaultValue={ceoThreshold} />
+            <span className="text-sm text-muted">so'm</span>
+            <button className="btn btn-brand !py-1.5 text-sm">Saqlash</button>
+          </form>
+        </div>
+      )}
 
       {/* Kategoriya bo'yicha sarf (10) + CSV (14) */}
       <div className="card p-4">
