@@ -157,3 +157,12 @@ export const REQUEST_TYPES: Record<string, string> = {
   maintenance: "Texnik zayavka",
   new_branch: "Yangi filial so'rovi",
 };
+
+// Ochilish bosqichlari (open group checklist — punkt 11)
+export const OPENING_STAGES: { key: string; label: string }[] = [
+  { key: "construction", label: "Qurilish / remont" },
+  { key: "equipment", label: "Jihozlar o'rnatildi" },
+  { key: "license", label: "Litsenziya / ruxsatlar" },
+  { key: "staff", label: "Xodimlar yollandi" },
+  { key: "launch", label: "Ochilish (ishga tushdi)" },
+];

@@ -27,10 +27,12 @@ Foydalanuvchi: **13 (ochilish shabloni)дан tashqari hammasini**. Har biri mol
 - [x] **14.** Ta'minotchi tavsiyasi — benchmarkda "eng arzon" ta'minotchi ✅
 
 ## Phase O-3 — 0007 migratsiya kerak (foydalanuvchi ishtiroki OXIRIDA)
-- [ ] **11.** Ochilish bosqichlari checklist (opening_stages jsonb)
-- [ ] **12.** Bir filial = bitta ochilish loyihasi (guruhlash)
-- [ ] **1.** Ochilish kategoriya byudjeti (loyiha darajasi)
-- [ ] **24.** Ochilishdan keyingi 1-oy byudjeti (filial yaratish + budjet)
+- [x] **11.** Ochilish bosqichlari checklist (opening_stages) — zayavkada + progress ✅
+- [x] **12.** Ochilish loyihasi tegi (opening_project) — /openings da ko'rinadi ✅
+- [x] **1.** Ochilish kategoriya byudjeti (opening_budget) — reja vs fakt ✅
+- [x] **24.** (O-3a da) Ochilishdan keyingi 1-oy byudjeti ✅
+
+## HAMMASI TAYYOR: 24/24 punkt (13 chiqarilgan). 0007 migratsiya kerak.
 
 ## Chiqarildi
 - ~~13. Ochilish shabloni~~

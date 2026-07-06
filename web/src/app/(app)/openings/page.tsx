@@ -5,6 +5,7 @@ import { createClient } from "@/lib/supabase/server";
 import { formatMoney } from "@/lib/format";
 import { formatDate } from "@/lib/workflow";
 import { toSom, type Rates } from "@/lib/currency";
+import { OPENING_STAGES } from "@/lib/constants";
 import StatusBadge from "@/components/StatusBadge";
 import ExportCsv from "@/components/ExportCsv";
 
@@ -23,7 +24,7 @@ export default async function OpeningsPage() {
   const sb = await createClient();
 
   const [{ data: reqs }, { data: rateRows }, { data: rejects }] = await Promise.all([
-    sb.from("requests").select("id, title, status, estimated_amount, estimated_currency, rating, paid, paid_at, deadline, created_at, reports(total, created_at)").eq("type", "new_branch").order("id", { ascending: false }),
+    sb.from("requests").select("id, title, status, estimated_amount, estimated_currency, rating, paid, paid_at, deadline, created_at, opening_stages, opening_project, reports(total, created_at)").eq("type", "new_branch").order("id", { ascending: false }),
     sb.from("exchange_rates").select("currency, rate"),
     sb.from("events").select("comment, created_at, request:requests(id, title, type)").eq("action", "Rad etdi").order("id", { ascending: false }).limit(50),
   ]);
@@ -34,20 +35,24 @@ export default async function OpeningsPage() {
   type Proj = {
     id: number; title: string; status: string; planned: number; actual: number;
     currency: string | null; rating: number | null; paid: boolean; days: number | null; created_at: string;
+    stagePct: number; project: string | null;
   };
   const projects: Proj[] = (reqs ?? []).map((r) => {
     const rr = r as unknown as {
       id: number; title: string; status: string; estimated_amount: number | null; estimated_currency: string | null;
       rating: number | null; paid: boolean | null; created_at: string; reports: { total: number; created_at: string }[] | null;
+      opening_stages: Record<string, boolean> | null; opening_project: string | null;
     };
     const planned = toSom(Number(rr.estimated_amount ?? 0), rr.estimated_currency, rates);
     const reps = rr.reports ?? [];
     const actual = reps.reduce((s, x) => s + (x.total || 0), 0);
     const lastRep = reps.sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime())[0];
+    const stagesDone = OPENING_STAGES.filter((s) => rr.opening_stages?.[s.key]).length;
     return {
       id: rr.id, title: rr.title, status: rr.status, planned, actual,
       currency: rr.estimated_currency, rating: rr.rating, paid: !!rr.paid,
       days: lastRep ? daysBetween(rr.created_at, lastRep.created_at) : null, created_at: rr.created_at,
+      stagePct: Math.round((stagesDone / OPENING_STAGES.length) * 100), project: rr.opening_project,
     };
   });
 
@@ -100,7 +105,10 @@ export default async function OpeningsPage() {
               return (
                 <div key={p.id} className="border-t border-border pt-3 first:border-0 first:pt-0">
                   <div className="flex flex-wrap items-center justify-between gap-2">
-                    <Link href={`/requests/${p.id}`} className="font-medium text-brand">{p.title}</Link>
+                    <div className="flex items-center gap-2 flex-wrap">
+                      <Link href={`/requests/${p.id}`} className="font-medium text-brand">{p.title}</Link>
+                      {p.project && <span className="text-xs bg-surface-2 rounded px-1.5 py-0.5 text-muted">🏷 {p.project}</span>}
+                    </div>
                     <div className="flex items-center gap-2">
                       {p.paid && <span className="text-xs text-success">✓ To'langan</span>}
                       <StatusBadge status={p.status} />
@@ -110,6 +118,7 @@ export default async function OpeningsPage() {
                     <span>Reja: {formatMoney(p.planned)}{p.currency && p.currency !== "so'm" ? ` (${p.currency})` : ""}</span>
                     {p.actual > 0 && <span>Fakt: {formatMoney(p.actual)}</span>}
                     {p.actual > 0 && <span className={over ? "text-danger font-semibold" : "text-success font-semibold"}>Farq: {over ? "+" : ""}{formatMoney(diff)}</span>}
+                    {!DEAD.includes(p.status) && <span>{p.stagePct}% bosqich</span>}
                     {p.days != null && <span>{p.days} kun</span>}
                     {p.rating ? <span>{"⭐".repeat(p.rating)}</span> : null}
                   </div>

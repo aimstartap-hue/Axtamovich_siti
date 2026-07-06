@@ -44,6 +44,9 @@ export interface RequestRow {
   executed_by: "axo" | "manager" | null;
   paid: boolean | null;
   paid_at: string | null;
+  opening_stages: Record<string, boolean> | null;
+  opening_project: string | null;
+  opening_budget: Record<string, number> | null;
   created_at: string;
 }
 

@@ -2,7 +2,7 @@ import { notFound } from "next/navigation";
 import Link from "next/link";
 import { requireProfile } from "@/lib/auth";
 import { createClient } from "@/lib/supabase/server";
-import { REQUEST_TYPES, ROLES, type Role } from "@/lib/constants";
+import { REQUEST_TYPES, ROLES, OPENING_STAGES, EXPENSE_CATEGORIES, type Role } from "@/lib/constants";
 import { formatDate, formatMoney, NOTIFY_ROLES } from "@/lib/workflow";
 import { isClosed } from "@/lib/helpers";
 import StatusBadge from "@/components/StatusBadge";
@@ -12,7 +12,8 @@ import type { RequestRow } from "@/lib/types";
 import ActionPanel from "./ActionPanel";
 import CommentBox from "./CommentBox";
 import RatingBox from "./RatingBox";
-import { duplicateRequestAction, markPaidAction, completeOpeningAction } from "../actions";
+import { duplicateRequestAction, markPaidAction, completeOpeningAction,
+  toggleOpeningStageAction, setOpeningProjectAction, saveOpeningBudgetAction } from "../actions";
 
 export default async function RequestDetail({ params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;
@@ -97,6 +98,16 @@ export default async function RequestDetail({ params }: { params: Promise<{ id: 
     }
   }
 
+  // Ochilish boshqaruvi (O-11 bosqich, O-12 loyiha, O-1 kategoriya byudjet)
+  const canOpening = req.type === "new_branch" && ["open_group", "admin", "ops_director"].includes(profile.role);
+  const openingActual: Record<string, number> = {};
+  if (req.type === "new_branch") {
+    for (const it of (report?.items ?? []) as { category: string | null; qty: number; price: number }[]) {
+      if (it.category) openingActual[it.category] = (openingActual[it.category] ?? 0) + (Number(it.qty) || 0) * (Number(it.price) || 0);
+    }
+  }
+  const stagesDone = OPENING_STAGES.filter((s) => req.opening_stages?.[s.key]).length;
+
   return (
     <div className="max-w-3xl mx-auto space-y-4">
       <Link href="/requests" className="text-sm text-brand">← Zayavkalar</Link>
@@ -153,6 +164,73 @@ export default async function RequestDetail({ params }: { params: Promise<{ id: 
 
       {/* Amallar */}
       <ActionPanel req={req} profile={profile} budget={budgetInfo} />
+
+      {/* Ochilish boshqaruvi: bosqichlar (O-11) + loyiha (O-12) + kategoriya byudjet (O-1) */}
+      {canOpening && (
+        <div className="card p-5 space-y-4">
+          <div className="flex items-center justify-between">
+            <h2 className="font-semibold">🏗 Ochilish boshqaruvi</h2>
+            <span className="text-xs text-muted">{stagesDone}/{OPENING_STAGES.length} bosqich</span>
+          </div>
+          <div className="h-2 rounded-full bg-surface-2 overflow-hidden">
+            <div className="h-full bg-brand" style={{ width: `${(stagesDone / OPENING_STAGES.length) * 100}%` }} />
+          </div>
+
+          {/* Bosqichlar (O-11) */}
+          <div className="grid sm:grid-cols-2 gap-2">
+            {OPENING_STAGES.map((s) => {
+              const done = !!req.opening_stages?.[s.key];
+              return (
+                <form action={toggleOpeningStageAction} key={s.key}>
+                  <input type="hidden" name="id" value={req.id} />
+                  <input type="hidden" name="stage" value={s.key} />
+                  <input type="hidden" name="done" value={done ? "0" : "1"} />
+                  <button className={`w-full flex items-center gap-2 px-3 py-2 rounded-lg text-sm text-left ${done ? "bg-success/15 text-success" : "bg-surface-2"}`}>
+                    <span>{done ? "✓" : "○"}</span> {s.label}
+                  </button>
+                </form>
+              );
+            })}
+          </div>
+
+          {/* Loyiha tegi (O-12) */}
+          <form action={setOpeningProjectAction} className="flex flex-wrap items-end gap-2 border-t border-border pt-3">
+            <div className="flex-1 min-w-40">
+              <label className="label">Loyiha (guruh nomi)</label>
+              <input name="opening_project" defaultValue={req.opening_project ?? ""} className="input" placeholder="Masalan: 2026 Q3 ochilishlar" />
+            </div>
+            <button className="btn btn-ghost">Saqlash</button>
+          </form>
+
+          {/* Kategoriya byudjeti reja vs fakt (O-1) */}
+          <div className="border-t border-border pt-3 space-y-2">
+            <div className="text-sm font-medium">Kategoriya byudjeti (reja vs fakt)</div>
+            {Object.entries(req.opening_budget ?? {}).map(([cat, amt]) => {
+              const act = openingActual[cat] ?? 0;
+              const over = act > amt;
+              return (
+                <div key={cat} className="text-xs">
+                  <div className="flex justify-between">
+                    <span>{cat}</span>
+                    <span className={over ? "text-danger font-semibold" : "text-muted"}>{formatMoney(act)} / {formatMoney(amt)}</span>
+                  </div>
+                  <div className="h-1.5 rounded-full bg-surface-2 overflow-hidden mt-0.5">
+                    <div className={`h-full ${over ? "bg-danger" : "bg-brand"}`} style={{ width: `${Math.min(amt ? (act / amt) * 100 : 0, 100)}%` }} />
+                  </div>
+                </div>
+              );
+            })}
+            <form action={saveOpeningBudgetAction} className="flex flex-wrap items-end gap-2 pt-1">
+              <input type="hidden" name="id" value={req.id} />
+              <select name="category" className="select !py-1 text-xs flex-1 min-w-40">
+                {EXPENSE_CATEGORIES.map((c) => <option key={c} value={c}>{c}</option>)}
+              </select>
+              <input name="amount" type="number" placeholder="Reja summa" className="input !py-1 w-28 text-xs" />
+              <button className="btn btn-ghost !py-1 text-xs">+ Qo'shish</button>
+            </form>
+          </div>
+        </div>
+      )}
 
       {/* Ochilishni yakunlash → filial yaratish (O-16, O-24) */}
       {req.type === "new_branch" && req.status === "closed" && ["open_group", "admin", "ops_director"].includes(profile.role) && (

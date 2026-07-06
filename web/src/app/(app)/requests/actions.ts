@@ -391,6 +391,54 @@ export async function completeOpeningAction(formData: FormData) {
   revalidatePath("/budgets");
 }
 
+// --- Ochilish bosqichlari / loyiha / kategoriya byudjeti (O-11, O-12, O-1) ---
+function canManageOpening(role: string) {
+  return ["open_group", "admin", "ops_director"].includes(role);
+}
+
+export async function toggleOpeningStageAction(formData: FormData) {
+  const profile = await getProfile();
+  if (!profile?.org_id || !canManageOpening(profile.role)) return;
+  const sb = await createClient();
+  const id = Number(formData.get("id"));
+  const r = await loadReq(sb, id);
+  if (!r || r.type !== "new_branch") return;
+  const stages = { ...(r.opening_stages ?? {}) };
+  stages[String(formData.get("stage"))] = formData.get("done") === "1";
+  await sb.from("requests").update({ opening_stages: stages }).eq("id", id);
+  revalidatePath(`/requests/${id}`);
+  revalidatePath("/openings");
+}
+
+export async function setOpeningProjectAction(formData: FormData) {
+  const profile = await getProfile();
+  if (!profile?.org_id || !canManageOpening(profile.role)) return;
+  const sb = await createClient();
+  const id = Number(formData.get("id"));
+  const r = await loadReq(sb, id);
+  if (!r || r.type !== "new_branch") return;
+  const project = String(formData.get("opening_project") || "").trim() || null;
+  await sb.from("requests").update({ opening_project: project }).eq("id", id);
+  revalidatePath(`/requests/${id}`);
+  revalidatePath("/openings");
+}
+
+export async function saveOpeningBudgetAction(formData: FormData) {
+  const profile = await getProfile();
+  if (!profile?.org_id || !canManageOpening(profile.role)) return;
+  const sb = await createClient();
+  const id = Number(formData.get("id"));
+  const r = await loadReq(sb, id);
+  if (!r || r.type !== "new_branch") return;
+  const category = String(formData.get("category") || "").trim();
+  if (!category) return;
+  const amount = Number(String(formData.get("amount") || "0").replace(/[^\d]/g, ""));
+  const b = { ...(r.opening_budget ?? {}) };
+  if (amount > 0) b[category] = amount; else delete b[category];
+  await sb.from("requests").update({ opening_budget: b }).eq("id", id);
+  revalidatePath(`/requests/${id}`);
+}
+
 // --- Zayavkani takrorlash (o'sha muammo yana bo'ldi) ------------------------
 export async function duplicateRequestAction(formData: FormData) {
   const profile = await getProfile();
