@@ -331,6 +331,21 @@ export async function rateRequestAction(formData: FormData) {
   revalidatePath(`/requests/${id}`);
 }
 
+// --- To'lov holati (moliya belgilaydi) (punkt 16) --------------------------
+export async function markPaidAction(formData: FormData) {
+  const profile = await getProfile();
+  if (!profile?.org_id) return;
+  if (!["finance", "admin", "ops_director", "ceo"].includes(profile.role)) return;
+  const sb = await createClient();
+  const id = Number(formData.get("id"));
+  const paid = formData.get("paid") === "1";
+  await sb.from("requests").update({ paid, paid_at: paid ? new Date().toISOString() : null }).eq("id", id);
+  const r = await loadReq(sb, id);
+  if (r) await logEvent(sb, r.org_id, id, profile.id, paid ? "To'langan deb belgilandi" : "To'lov bekor qilindi");
+  revalidatePath(`/requests/${id}`);
+  revalidatePath("/requests");
+}
+
 // --- Zayavkani takrorlash (o'sha muammo yana bo'ldi) ------------------------
 export async function duplicateRequestAction(formData: FormData) {
   const profile = await getProfile();

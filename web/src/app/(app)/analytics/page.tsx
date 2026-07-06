@@ -6,7 +6,7 @@ import { formatMoney } from "@/lib/format";
 import { formatDate } from "@/lib/workflow";
 import { roleHasPerm } from "@/lib/perms";
 import ExportCsv from "@/components/ExportCsv";
-import { saveThreshold } from "./actions";
+import { saveThreshold, updateRates } from "./actions";
 
 const FINANCE_ROLES = ["admin", "oper", "ceo", "finance", "ops_director"];
 
@@ -21,14 +21,22 @@ export default async function AnalyticsPage() {
   if (!FINANCE_ROLES.includes(profile.role)) redirect("/");
   const sb = await createClient();
 
-  const [{ data: items }, { data: reports }, { data: rejects }, { data: thr }] = await Promise.all([
+  const [{ data: items }, { data: reports }, { data: rejects }, { data: thr }, { data: rates }, { data: audit }] = await Promise.all([
     sb.from("report_items").select("category, supplier, qty, price"),
     sb.from("reports").select("total, created_at"),
     sb.from("events").select("comment, created_at, request:requests(id, title)").eq("action", "Rad etdi").order("id", { ascending: false }).limit(30),
     sb.from("org_settings").select("value").eq("key", "ceo_threshold").maybeSingle(),
+    sb.from("exchange_rates").select("currency, rate, updated_at"),           // 0006 dan keyin ishlaydi
+    sb.from("audit_log").select("action, detail, created_at, actor:profiles(full_name)").order("id", { ascending: false }).limit(20),
   ]);
   const canSetThreshold = await roleHasPerm(sb, profile.org_id, profile.role, "manage_ceo_threshold");
   const ceoThreshold = thr?.value ?? "50000000";
+  const rateList = (rates ?? []) as { currency: string; rate: number; updated_at: string }[];
+  const auditList = (audit ?? []).map((a) => {
+    const aa = a as unknown as { action: string; detail: string | null; created_at: string; actor: { full_name: string } | { full_name: string }[] | null };
+    const actor = Array.isArray(aa.actor) ? aa.actor[0] : aa.actor;
+    return { action: aa.action, detail: aa.detail, date: aa.created_at, actor: actor?.full_name ?? "—" };
+  });
 
   // Kategoriya bo'yicha sarf (punkt 10)
   const byCat = new Map<string, number>();
@@ -76,6 +84,28 @@ export default async function AnalyticsPage() {
           </form>
         </div>
       )}
+
+      {/* Valyuta kurslari — CBU (punkt 4) */}
+      <div className="card p-4">
+        <div className="flex items-center justify-between mb-2">
+          <h2 className="font-semibold">Valyuta kurslari (CBU)</h2>
+          <form action={updateRates}>
+            <button className="btn btn-ghost !py-1 text-sm">🔄 CBU'dan yangilash</button>
+          </form>
+        </div>
+        {rateList.length === 0 ? (
+          <p className="text-sm text-muted">Kurslar hali yuklanmagan — «CBU'dan yangilash» ni bosing.</p>
+        ) : (
+          <div className="flex flex-wrap gap-4 text-sm">
+            {rateList.map((r) => (
+              <div key={r.currency}>
+                <span className="font-semibold">1 {r.currency}</span> = {formatMoney(r.rate)}
+              </div>
+            ))}
+            <div className="text-xs text-muted w-full">Yangilangan: {formatDate(rateList[0]?.updated_at)}</div>
+          </div>
+        )}
+      </div>
 
       {/* Kategoriya bo'yicha sarf (10) + CSV (14) */}
       <div className="card p-4">
@@ -136,6 +166,21 @@ export default async function AnalyticsPage() {
           </div>
         )}
       </div>
+
+      {/* O'zgarishlar auditi (punkt 19) */}
+      {auditList.length > 0 && (
+        <div className="card p-4">
+          <h2 className="font-semibold mb-3">O'zgarishlar tarixi (audit)</h2>
+          <div className="space-y-2">
+            {auditList.map((a, i) => (
+              <div key={i} className="flex flex-wrap justify-between gap-2 text-sm border-t border-border pt-2 first:border-0 first:pt-0">
+                <span>{a.detail || a.action}</span>
+                <span className="text-xs text-muted">{a.actor} · {formatDate(a.date)}</span>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
     </div>
   );
 }

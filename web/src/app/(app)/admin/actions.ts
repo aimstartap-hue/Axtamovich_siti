@@ -4,7 +4,8 @@ import { revalidatePath } from "next/cache";
 import { requireProfile } from "@/lib/auth";
 import { createClient } from "@/lib/supabase/server";
 import { createAdminClient } from "@/lib/supabase/admin";
-import { ADMIN_ROLES, type Role } from "@/lib/constants";
+import { logAudit } from "@/lib/audit";
+import { ADMIN_ROLES, ROLES, PERMS, type Role } from "@/lib/constants";
 
 async function guardAdmin() {
   const profile = await requireProfile();
@@ -102,5 +103,7 @@ export async function togglePerm(formData: FormData) {
   await sb.from("role_perms").upsert(
     { org_id: profile.org_id, role, perm, allowed }, { onConflict: "org_id,role,perm" },
   );
+  await logAudit(sb, profile.org_id, profile.id, "perm",
+    `${ROLES[role as Role] ?? role}: "${PERMS[perm] ?? perm}" ${allowed ? "yoqildi" : "o'chirildi"}`);
   revalidatePath("/admin");
 }

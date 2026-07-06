@@ -2,6 +2,7 @@ import { revalidatePath } from "next/cache";
 import { requireProfile } from "@/lib/auth";
 import { createClient } from "@/lib/supabase/server";
 import { formatMoney } from "@/lib/workflow";
+import { logAudit } from "@/lib/audit";
 import { ROLES, type Role } from "@/lib/constants";
 import LimitForm from "@/components/LimitForm";
 
@@ -22,6 +23,7 @@ async function saveLimit(formData: FormData) {
     { org_id: profile.org_id, scope, ref, amount },
     { onConflict: "org_id,scope,ref" },
   );
+  await logAudit(sb, profile.org_id, profile.id, "limit", `Limit (${scope}: ${ref}) = ${amount.toLocaleString("ru-RU")} so'm`);
   revalidatePath("/limits");
 }
 

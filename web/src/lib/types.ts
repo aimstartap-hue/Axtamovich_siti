@@ -42,6 +42,8 @@ export interface RequestRow {
   priority: "urgent" | "normal" | "low" | null;
   rating: number | null;
   executed_by: "axo" | "manager" | null;
+  paid: boolean | null;
+  paid_at: string | null;
   created_at: string;
 }
 

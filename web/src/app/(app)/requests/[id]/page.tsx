@@ -12,7 +12,7 @@ import type { RequestRow } from "@/lib/types";
 import ActionPanel from "./ActionPanel";
 import CommentBox from "./CommentBox";
 import RatingBox from "./RatingBox";
-import { duplicateRequestAction } from "../actions";
+import { duplicateRequestAction, markPaidAction } from "../actions";
 
 export default async function RequestDetail({ params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;
@@ -206,6 +206,25 @@ export default async function RequestDetail({ params }: { params: Promise<{ id: 
               </div>
             );
           })()}
+
+          {/* To'lov holati (punkt 16) */}
+          <div className="flex flex-wrap items-center justify-between gap-2 text-sm mt-3 border-t border-border pt-2">
+            <span className="text-muted">To'lov holati:</span>
+            {req.paid ? (
+              <span className="text-success font-semibold">✓ To'langan {req.paid_at ? `· ${formatDate(req.paid_at)}` : ""}</span>
+            ) : (
+              <span className="text-muted">To'lanmagan</span>
+            )}
+            {financeView && (
+              <form action={markPaidAction}>
+                <input type="hidden" name="id" value={req.id} />
+                <input type="hidden" name="paid" value={req.paid ? "0" : "1"} />
+                <button className={`btn !py-1 text-xs ${req.paid ? "btn-ghost" : "btn-success"}`}>
+                  {req.paid ? "Bekor qilish" : "To'langan deb belgilash"}
+                </button>
+              </form>
+            )}
+          </div>
         </div>
       )}
 

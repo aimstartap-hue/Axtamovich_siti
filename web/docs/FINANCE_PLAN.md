@@ -8,10 +8,10 @@ Foydalanuvchi tanlagan va izohlagan punktlar. **Belgilanmagan/izohlanmaganlar KE
 - [x] **1.** Byudjet oshsa moliya tasdiqida ogohlantirish/qoldiqni ko'rsatish ✅ Phase 1
 - [x] **2.** `hard` limitni haqiqatan majburlash (oshsa bloklash) ✅ Phase 1
 - [x] **3.** "Majburiyat (committed)" vs "sarflangan" farqi (tasdiqlangan, hali hisobot yo'q) ✅ Phase 1
-- [ ] **4.** Valyuta normalizatsiyasi (USD→so'm) — **CBU API'дан avtomat** (Phase 2)
+- [x] **4.** Valyuta (CBU): analitikada kurslar + «CBU'dan yangilash», toSom() helper ✅ Phase 3 (0006)
 - [x] **5.** Limit `ref` dropdown (filial/user/rol tanlov, qo'lда yozish emas) ✅ Phase 1
 - [x] **6.** Reja (estimated) vs Fakt (report total) — variance hisobot kartasida ✅ Phase 2
-- [ ] **7.** Byudjetni kategoriya bo'yicha bo'lish — **filial + kategoriya** (Phase 2, 0006 migratsiya kerak)
+- [x] **7.** Byudjet filial + kategoriya (byudjet sahifasida kategoriya byudjetlari) ✅ Phase 3 (0006)
 - [x] **8.** Rollup ko'rinishlari: **umumiy (org) + filial + lavozim (rol)** — uchalasi ✅ Phase 1
 - [x] **9.** Hisobot yaxlitligi: `reports.total` = Σ(qty×price) server tomonда kafolat ✅ (avvaldan)
 
@@ -21,13 +21,13 @@ Foydalanuvchi tanlagan va izohlagan punktlar. **Belgilanmagan/izohlanmaganlar KE
 - [x] **12.** Oylar kesimida trend grafigi ✅ Phase 2B
 - [x] **13.** Byudjet ogohlantirishi: hisobotда filial byudjeti 80%/100% oshsa moliyaga bildirishnoma ✅ Phase 2C
 - [x] **14.** Excel/CSV eksport (analitikada kategoriya/ta'minotchi) ✅ Phase 2B
-- [ ] **16.** To'lov holati (paid vs approved), to'langan sana
-- [ ] **17.** Byudjet nusxalash + **bir martaga yillik byudjet qo'yish**
+- [x] **16.** To'lov holati (paid), to'langan sana — zayavkada moliya belgilaydi ✅ Phase 3 (0006)
+- [x] **17.** Byudjet: o'tgan oydan nusxala + butun yilga qo'llash ✅ Phase 3
 - [x] **18.** CEO chegarasi: admin belgilaydi (avvaldan) + `manage_ceo_threshold` huquqi orqali moliyaga ham berish (analitikada tahrir) ✅ Phase 2C
 
 ### 🟢 Foydali
-- [ ] **19.** Byudjet/limit o'zgarishlari auditi (kim, qachon, qancha)
-- [ ] **20.** Yillik byudjet ko'rinishi + **Excel'дан avtomat import (tortish)**
+- [x] **19.** Audit: byudjet/limit/chegara/ruxsat o'zgarishlari (analitikada tarix) ✅ Phase 3 (0006)
+- [x] **20.** Excel (.xlsx/.csv) dan byudjet import (SheetJS, filial nomi bo'yicha) ✅ Phase 3
 - [x] **21.** Narx benchmark: bir xil mahsulot (kat+nom) oldingi narx bilan %-solishtiruv, faqat moliyaga, oldingi zayavkaga havola ✅ Phase 2
       Misol: pitsa pech filial 6 ga 2 000 000, 1 oydan keyin filial 7 ga 3 000 000.
       AXO hisobot topshirganда **faqat moliyaga** ko'rinsin + oldingi bog'liq zayavkaga
