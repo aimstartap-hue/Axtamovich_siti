@@ -222,7 +222,17 @@ export async function submitReportAction(formData: FormData) {
   const items = JSON.parse(String(formData.get("items_json") || "[]")) as
     { name: string; category: string | null; supplier: string | null; qty: number; price: number }[];
   const photos = JSON.parse(String(formData.get("photos_json") || "[]"));
+  // Yaxlitlik (punkt 9): jami har doim serverда itemlardan qayta hisoblanadi —
+  // mijoz yuborgan songa ishonilmaydi.
   const total = items.reduce((s, it) => s + (Number(it.qty) || 0) * (Number(it.price) || 0), 0);
+
+  // Qat'iy (hard) limit majburlanadi (punkt 2): hisobot limitdan oshsa — bloklanadi.
+  if (r.limit_type === "hard" && r.limit_amount != null && total > Number(r.limit_amount)) {
+    const over = total - Number(r.limit_amount);
+    return {
+      error: `Qat'iy limitdan oshib ketdi: hisobot ${total.toLocaleString("ru-RU")} so'm, limit ${Number(r.limit_amount).toLocaleString("ru-RU")} so'm (${over.toLocaleString("ru-RU")} so'm ortiq). Moliya bilan bog'laning.`,
+    };
+  }
 
   const { data: rep, error } = await sb.from("reports").insert({
     org_id: r.org_id, request_id: id, note, total, photos_json: photos, submitted_by: profile.id,

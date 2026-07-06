@@ -33,6 +33,29 @@ export default async function RequestDetail({ params }: { params: Promise<{ id: 
       sb.from("reports").select("*, items:report_items(*)").eq("request_id", rid).order("id", { ascending: false }).limit(1).maybeSingle(),
     ]);
 
+  // Byudjet konteksti — moliya tasdiqlaganда qoldiqni ko'rsatish uchun (punkt 1)
+  let budgetInfo: { amount: number; spent: number; committed: number } | null = null;
+  if (req.branch_id && req.status === "pending_finance") {
+    const now = new Date();
+    const month = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}`;
+    const [{ data: bud }, { data: reps }, { data: commits }] = await Promise.all([
+      sb.from("budgets").select("amount").eq("branch_id", req.branch_id).eq("month", month).maybeSingle(),
+      sb.from("reports").select("total, created_at, request:requests(branch_id)"),
+      sb.from("requests").select("estimated_amount, limit_amount")
+        .eq("branch_id", req.branch_id).in("status", ["approved", "funded", "manager_doing", "axo_review"]),
+    ]);
+    const spent = (reps ?? []).reduce((s, x) => {
+      const rr = x as unknown as { total: number; created_at: string; request: { branch_id: number } | null };
+      if (rr.request?.branch_id === req.branch_id && rr.created_at?.startsWith(month)) return s + (rr.total || 0);
+      return s;
+    }, 0);
+    const committed = (commits ?? []).reduce((s, x) => {
+      const c = x as { estimated_amount: number | null; limit_amount: number | null };
+      return s + Number(c.limit_amount ?? c.estimated_amount ?? 0);
+    }, 0);
+    budgetInfo = { amount: Number(bud?.amount ?? 0), spent, committed };
+  }
+
   const photos: string[] = Array.isArray(req.photos_json) ? req.photos_json : [];
 
   // Filial regmeni (embed massiv yoki obyekt bo'lishi mumkin)
@@ -100,7 +123,7 @@ export default async function RequestDetail({ params }: { params: Promise<{ id: 
       </div>
 
       {/* Amallar */}
-      <ActionPanel req={req} profile={profile} />
+      <ActionPanel req={req} profile={profile} budget={budgetInfo} />
 
       {/* Baho (yopilgach, yaratgan menejer) + takrorlash */}
       {(isMine || isClosed(req.status)) && (

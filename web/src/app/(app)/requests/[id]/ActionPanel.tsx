@@ -1,6 +1,9 @@
 "use client";
 
+import { useState } from "react";
 import Link from "next/link";
+import NumberInput from "@/components/NumberInput";
+import { formatMoney } from "@/lib/format";
 import { EXPENSE_GROUPS, TYPE_GROUPS } from "@/lib/constants";
 import {
   canApprove, canSubmitReport, canResolveDispute, canRequestDeadlineChange,
@@ -12,6 +15,35 @@ import {
   approveAction, rejectAction, reopenAction, sendToHrAction, hrResolveAction,
   requestDeadlineChangeAction, resolveDisputeAction, delegateToManagerAction, axoReviewAction,
 } from "../actions";
+
+/** Byudjet konteksti — moliya tasdiqlaganда qoldiqni ko'rsatadi (punkt 1). */
+function BudgetBox({ budget, adding }: { budget: BudgetInfo; adding: number }) {
+  const remaining = budget.amount - budget.spent - budget.committed;
+  const afterThis = remaining - (adding || 0);
+  if (budget.amount <= 0) {
+    return (
+      <div className="text-xs bg-surface-2 rounded-lg px-3 py-2 text-muted">
+        Bu filialga joriy oyга byudjet belgilanmagan.
+      </div>
+    );
+  }
+  return (
+    <div className="text-xs bg-surface-2 rounded-lg px-3 py-2 space-y-0.5">
+      <div className="flex justify-between"><span className="text-muted">Oylik byudjet</span><span className="font-medium">{formatMoney(budget.amount)}</span></div>
+      <div className="flex justify-between"><span className="text-muted">Sarflandi</span><span>{formatMoney(budget.spent)}</span></div>
+      <div className="flex justify-between"><span className="text-muted">Majburiyat (tasdiqlangan)</span><span>{formatMoney(budget.committed)}</span></div>
+      <div className="flex justify-between border-t border-border pt-0.5 mt-0.5">
+        <span className="text-muted">Qoldiq</span>
+        <span className={remaining < 0 ? "text-danger font-semibold" : "font-semibold"}>{formatMoney(remaining)}</span>
+      </div>
+      {adding > 0 && (
+        <div className={`flex justify-between ${afterThis < 0 ? "text-danger font-semibold" : "text-muted"}`}>
+          <span>Bu zayavkadan keyin</span><span>{formatMoney(afterThis)}{afterThis < 0 ? " ⚠️" : ""}</span>
+        </div>
+      )}
+    </div>
+  );
+}
 
 function CategorySelect({ type, name }: { type: string; name: string }) {
   const groups = TYPE_GROUPS[type] ?? Object.keys(EXPENSE_GROUPS);
@@ -27,8 +59,12 @@ function CategorySelect({ type, name }: { type: string; name: string }) {
   );
 }
 
-export default function ActionPanel({ req, profile }: { req: RequestRow; profile: Profile }) {
+export interface BudgetInfo { amount: number; spent: number; committed: number; }
+
+export default function ActionPanel({ req, profile, budget }: { req: RequestRow; profile: Profile; budget?: BudgetInfo | null }) {
   const role = profile.role;
+  const [est, setEst] = useState<number | null>(req.estimated_amount ?? null);
+  const [lim, setLim] = useState<number | null>(null);
   const showApprove = canApprove(req, role);
   const showDispute = canResolveDispute(req, role);
   const showReopen = canReopen(req, profile);
@@ -55,7 +91,7 @@ export default function ActionPanel({ req, profile }: { req: RequestRow; profile
             <div className="grid grid-cols-2 gap-2">
               <div>
                 <label className="label">Taxminiy summa (so'm)</label>
-                <input name="estimated_amount" type="number" className="input" placeholder="0" />
+                <NumberInput name="estimated_amount" value={est} onValueChange={setEst} placeholder="0" />
               </div>
               <div>
                 <label className="label">Kategoriya</label>
@@ -71,11 +107,15 @@ export default function ActionPanel({ req, profile }: { req: RequestRow; profile
             </div>
           )}
 
+          {budget && (
+            <BudgetBox budget={budget} adding={est ?? req.estimated_amount ?? 0} />
+          )}
+
           {setsLimitOnApprove(req) && (
             <div className="grid grid-cols-2 gap-2">
               <div>
                 <label className="label">AXO limiti (so'm)</label>
-                <input name="limit_amount" type="number" className="input" placeholder="0" />
+                <NumberInput name="limit_amount" value={lim} onValueChange={setLim} placeholder="0" />
               </div>
               <div>
                 <label className="label">Limit turi</label>

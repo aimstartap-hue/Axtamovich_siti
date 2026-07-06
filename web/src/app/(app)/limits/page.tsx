@@ -2,7 +2,8 @@ import { revalidatePath } from "next/cache";
 import { requireProfile } from "@/lib/auth";
 import { createClient } from "@/lib/supabase/server";
 import { formatMoney } from "@/lib/workflow";
-import { ROLES, EXPENSE_CATEGORIES, type Role } from "@/lib/constants";
+import { ROLES, type Role } from "@/lib/constants";
+import LimitForm from "@/components/LimitForm";
 
 function currentMonth() {
   const d = new Date();
@@ -79,32 +80,11 @@ export default async function LimitsPage() {
       <h1 className="text-xl font-bold">Limitlar (oylik)</h1>
       <p className="text-sm text-muted">Joriy oy: {month}</p>
 
-      <details className="card p-4">
-        <summary className="cursor-pointer font-medium">+ Yangi limit qo'shish</summary>
-        <form action={saveLimit} className="grid md:grid-cols-2 gap-3 mt-3">
-          <div>
-            <label className="label">Doira</label>
-            <select name="scope" className="select">
-              <option value="category">Kategoriya</option>
-              <option value="branch">Filial</option>
-              <option value="user">Foydalanuvchi</option>
-              <option value="role">Rol</option>
-            </select>
-          </div>
-          <div>
-            <label className="label">Nima uchun (nomi / id / rol)</label>
-            <input name="ref" className="input" list="cat-list" placeholder="Kategoriya nomi yoki id" />
-            <datalist id="cat-list">
-              {EXPENSE_CATEGORIES.map((c) => <option key={c} value={c} />)}
-            </datalist>
-          </div>
-          <div className="md:col-span-2">
-            <label className="label">Summa (so'm)</label>
-            <input name="amount" type="number" className="input" placeholder="0" />
-          </div>
-          <button className="btn btn-brand md:col-span-2">Saqlash</button>
-        </form>
-      </details>
+      <LimitForm
+        action={saveLimit}
+        branches={(branches ?? []).map((b) => ({ id: String(b.id), name: b.name }))}
+        users={(users ?? []).map((u) => ({ id: u.id, name: u.full_name }))}
+      />
 
       <div className="space-y-2">
         {(limits ?? []).map((l) => {
