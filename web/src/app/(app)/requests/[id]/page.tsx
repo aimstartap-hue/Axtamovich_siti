@@ -36,7 +36,7 @@ export default async function RequestDetail({ params }: { params: Promise<{ id: 
 
   // Byudjet konteksti — moliya tasdiqlaganда qoldiqni ko'rsatish uchun (punkt 1)
   let budgetInfo: { amount: number; spent: number; committed: number } | null = null;
-  if (req.branch_id && req.status === "pending_finance") {
+  if (req.branch_id && (req.status === "pending_finance" || req.status === "pending_ceo")) {
     const now = new Date();
     const month = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}`;
     const [{ data: bud }, { data: reps }, { data: commits }] = await Promise.all([

@@ -10,9 +10,11 @@ interface NavItem { href: string; label: string; icon: string; roles?: Role[]; }
 
 const FINANCE_ROLES: Role[] = ["admin", "oper", "ceo", "finance", "ops_director"];
 const OPENING_ROLES: Role[] = ["open_group", "admin", "oper", "ceo", "finance", "ops_director"];
+const CEO_ROLES: Role[] = ["ceo", "admin", "ops_director"];
 
 const NAV: NavItem[] = [
   { href: "/", label: "Bosh sahifa", icon: "🏠" },
+  { href: "/ceo", label: "CEO", icon: "👔", roles: CEO_ROLES },
   { href: "/requests", label: "Zayavkalar", icon: "📋" },
   { href: "/budgets", label: "Byudjet", icon: "💰" },
   { href: "/openings", label: "Ochilish", icon: "🏗", roles: OPENING_ROLES },
