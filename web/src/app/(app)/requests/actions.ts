@@ -280,6 +280,22 @@ export async function submitReportAction(formData: FormData) {
     }
   }
 
+  // Ochilish (new_branch): smetadan oshsa ogohlantirish (O-20) + jihozlarni aktivga (O-15)
+  if (r.type === "new_branch") {
+    if (r.estimated_amount != null && total > Number(r.estimated_amount)) {
+      const over = total - Number(r.estimated_amount);
+      await notifyRoles(sb, r.org_id, ["open_group", "finance", "ceo"], id,
+        `⚠️ "${r.title}" ochilishi smetadan ${over.toLocaleString("ru-RU")} so'm oshdi`);
+    }
+    const assetRows = items
+      .filter((it) => it.name?.trim() && (Number(it.price) || 0) >= 500_000)
+      .map((it) => ({
+        org_id: r.org_id, branch_id: null, name: it.name, category: it.category,
+        purchase_date: new Date().toISOString().slice(0, 10), note: `Ochilish: ${r.title}`,
+      }));
+    if (assetRows.length) await sb.from("assets").insert(assetRows);
+  }
+
   revalidatePath(`/requests/${id}`);
   return { ok: true };
 }

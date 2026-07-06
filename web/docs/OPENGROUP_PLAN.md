@@ -19,12 +19,12 @@ Foydalanuvchi: **13 (ochilish shabloni)дан tashqari hammasini**. Har biri mol
 - [x] **19.** Hard limit — limit qo'yilsa
 - [x] **9.** Audit — byudjet/limit o'zgarishlari
 
-## Phase O-2 — sxemasiz qo'shimchalar (jarayonda)
-- [ ] **15.** Ochilish jihozlarini avtomat aktivga (assets) yozish
-- [ ] **20.** Ochilish smetadan oshsa ogohlantirish
-- [ ] **16.** Ochilishdan keyin menejerga topshirish (handover)
+## Phase O-2 — sxemasiz qo'shimchalar
+- [x] **15.** Ochilish jihozlarini avtomat aktivga (assets) yozish ✅ (hisobotда, >=500k)
+- [x] **20.** Ochilish smetadan oshsa ogohlantirish ✅ (open_group+moliya+ceo)
+- [x] **18/23.** Muddat/kechikish — /openings da kun ko'rsatiladi ✅
+- [ ] **16.** Ochilishdan keyin menejerga topshirish (handover) — O-3 (filial yaratish bilan)
 - [ ] **14.** Ta'minotchi tanlash (eng arzon taklifi)
-- [ ] **18/23.** Muddat/kechikish (deadline vs haqiqiy)
 
 ## Phase O-3 — 0007 migratsiya kerak (foydalanuvchi ishtiroki OXIRIDA)
 - [ ] **11.** Ochilish bosqichlari checklist (opening_stages jsonb)
