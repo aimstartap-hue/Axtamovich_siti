@@ -21,6 +21,12 @@ export const ROLES: Record<Role, string> = {
 
 export const ADMIN_ROLES: Role[] = ["admin", "oper"];
 
+// Rol guruhlari — sahifa/amal ko'rinishini nazorat qilish uchun YAGONA manba.
+// (Kim nimani ko'radi — nazorat masalasi, shuning uchun bir joyda saqlanadi.)
+export const FINANCE_ROLES: Role[] = ["admin", "oper", "ceo", "finance", "ops_director"];
+export const OPENING_ROLES: Role[] = ["open_group", ...FINANCE_ROLES];
+export const CEO_ROLES: Role[] = ["ceo", "admin", "ops_director"];
+
 // Rol qobiliyatlari (admin yoqadi/o'chiradi)
 export const PERMS: Record<string, string> = {
   create_maintenance: "Texnik zayavka yaratish",

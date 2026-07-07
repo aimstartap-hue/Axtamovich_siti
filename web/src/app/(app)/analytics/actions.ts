@@ -6,8 +6,7 @@ import { createClient } from "@/lib/supabase/server";
 import { roleHasPerm } from "@/lib/perms";
 import { logAudit } from "@/lib/audit";
 import { fetchCbuRates, TRACKED_CURRENCIES } from "@/lib/currency";
-
-const FINANCE_ROLES = ["admin", "oper", "ceo", "finance", "ops_director"];
+import { FINANCE_ROLES } from "@/lib/constants";
 
 /** CEO summa chegarasini saqlash — faqat 'manage_ceo_threshold' huquqiga ega rollar (punkt 18). */
 export async function saveThreshold(formData: FormData) {

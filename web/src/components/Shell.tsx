@@ -3,14 +3,10 @@
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useState } from "react";
-import { ROLES, type Role } from "@/lib/constants";
+import { ROLES, FINANCE_ROLES, OPENING_ROLES, CEO_ROLES, type Role } from "@/lib/constants";
 import { logoutAction } from "@/app/(auth)/actions";
 
 interface NavItem { href: string; label: string; icon: string; roles?: Role[]; }
-
-const FINANCE_ROLES: Role[] = ["admin", "oper", "ceo", "finance", "ops_director"];
-const OPENING_ROLES: Role[] = ["open_group", "admin", "oper", "ceo", "finance", "ops_director"];
-const CEO_ROLES: Role[] = ["ceo", "admin", "ops_director"];
 
 const NAV: NavItem[] = [
   { href: "/", label: "Bosh sahifa", icon: "🏠" },

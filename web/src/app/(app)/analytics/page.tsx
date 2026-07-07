@@ -5,10 +5,9 @@ import { createClient } from "@/lib/supabase/server";
 import { formatMoney } from "@/lib/format";
 import { formatDate } from "@/lib/workflow";
 import { roleHasPerm } from "@/lib/perms";
+import { FINANCE_ROLES } from "@/lib/constants";
 import ExportCsv from "@/components/ExportCsv";
 import { saveThreshold, updateRates } from "./actions";
-
-const FINANCE_ROLES = ["admin", "oper", "ceo", "finance", "ops_director"];
 
 function monthLabel(m: string) {
   const [y, mo] = m.split("-");

@@ -5,12 +5,10 @@ import { createClient } from "@/lib/supabase/server";
 import { formatMoney } from "@/lib/format";
 import { formatDate } from "@/lib/workflow";
 import { toSom, type Rates } from "@/lib/currency";
-import { OPENING_STAGES } from "@/lib/constants";
+import { OPENING_STAGES, OPENING_ROLES } from "@/lib/constants";
 import StatusBadge from "@/components/StatusBadge";
 import ExportCsv from "@/components/ExportCsv";
 
-// Ochilish sahifasini ko'ra oladigan rollar (open group + moliya/rahbariyat)
-const OPENING_ROLES = ["open_group", "admin", "oper", "ceo", "finance", "ops_director"];
 const CLOSED = "closed";
 const DEAD = ["closed", "rejected"];
 

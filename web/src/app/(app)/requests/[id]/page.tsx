@@ -2,7 +2,7 @@ import { notFound } from "next/navigation";
 import Link from "next/link";
 import { requireProfile } from "@/lib/auth";
 import { createClient } from "@/lib/supabase/server";
-import { REQUEST_TYPES, ROLES, OPENING_STAGES, EXPENSE_CATEGORIES, type Role } from "@/lib/constants";
+import { REQUEST_TYPES, ROLES, OPENING_STAGES, EXPENSE_CATEGORIES, FINANCE_ROLES, type Role } from "@/lib/constants";
 import { formatDate, formatMoney, NOTIFY_ROLES } from "@/lib/workflow";
 import { isClosed } from "@/lib/helpers";
 import StatusBadge from "@/components/StatusBadge";
@@ -71,7 +71,7 @@ export default async function RequestDetail({ params }: { params: Promise<{ id: 
 
   // Narx benchmark (punkt 21) — faqat moliya/rahbariyatga ko'rinadi.
   // Bir xil mahsulotni (kategoriya + nom) oldin qanchaga olganini topib, % farqni ko'rsatadi.
-  const financeView = ["finance", "admin", "ceo", "ops_director", "oper"].includes(profile.role);
+  const financeView = FINANCE_ROLES.includes(profile.role);
   type Bench = { name: string; current: number; prev: number; prevDate: string; prevReq: number; deltaPct: number; bestPrice: number; bestSupplier: string | null };
   const priceBench: Bench[] = [];
   const reportItems = (report?.items ?? []) as { name: string; category: string | null; price: number }[];

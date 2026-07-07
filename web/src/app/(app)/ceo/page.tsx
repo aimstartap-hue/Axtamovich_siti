@@ -5,12 +5,11 @@ import { createClient } from "@/lib/supabase/server";
 import { formatMoney } from "@/lib/format";
 import { formatDate } from "@/lib/workflow";
 import { toSom, type Rates } from "@/lib/currency";
-import { DEFAULT_CEO_THRESHOLD } from "@/lib/constants";
+import { DEFAULT_CEO_THRESHOLD, CEO_ROLES } from "@/lib/constants";
 import { isOpen, currentMonth } from "@/lib/helpers";
 import StatusBadge from "@/components/StatusBadge";
 import ExportCsv from "@/components/ExportCsv";
 
-const CEO_ROLES = ["ceo", "admin", "ops_director"];
 const norm = (s: string | null | undefined) => (s ?? "").trim().toLowerCase();
 
 export default async function CeoPage() {
