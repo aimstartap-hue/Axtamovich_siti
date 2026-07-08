@@ -4,12 +4,8 @@ import { createClient } from "@/lib/supabase/server";
 import { formatMoney } from "@/lib/workflow";
 import { logAudit } from "@/lib/audit";
 import { ROLES, type Role } from "@/lib/constants";
+import { currentMonth } from "@/lib/helpers";
 import LimitForm from "@/components/LimitForm";
-
-function currentMonth() {
-  const d = new Date();
-  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`;
-}
 
 async function saveLimit(formData: FormData) {
   "use server";

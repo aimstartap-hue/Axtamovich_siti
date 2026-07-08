@@ -4,13 +4,10 @@ import { createClient } from "@/lib/supabase/server";
 import { formatMoney } from "@/lib/format";
 import { logAudit } from "@/lib/audit";
 import { ROLES, EXPENSE_CATEGORIES, type Role } from "@/lib/constants";
+import { currentMonth } from "@/lib/helpers";
 import MonthFilter from "@/components/MonthFilter";
 import BudgetImport from "@/components/BudgetImport";
 
-function currentMonth() {
-  const d = new Date();
-  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`;
-}
 function prevMonth(m: string) {
   const [y, mo] = m.split("-").map(Number);
   const d = new Date(y, mo - 2, 1);
