@@ -31,6 +31,20 @@ stateDiagram-v2
   closed --> [*]
 ```
 
+## Audit topilmasi (actions.ts ↔ graf 1:1)
+
+`actions.ts` dagi BARCHA status o'zgarishlari grafga mos (drift-test tasdiqlaydi), bitta nozik holat bilan:
+
+- **CEO/admin favqulodda rad etish (override):** `rejectAction` guard'i `canApprove YOKI ceo/admin`
+  bo'lgani uchun CEO/admin **jarayondagi** holatlardan ham (approved, funded, manager_doing,
+  axo_review, deadline_dispute) rad eta oladi. Graf shu haqiqatni aks ettiradi (`→ rejected`).
+- **⚠️ Ochiq xavf:** guard terminal holatni (closed) istisno qilmaydi — ya'ni CEO/admin
+  texnik jihatdan **yopilgan** zayavkani ham rejected qila oladi. Bu grafga KIRITILMAGAN
+  (noto'g'ri deb baholanadi). Tavsiya: deploy ochilgach `rejectAction` guard'ini
+  `!isTerminal(status)` bilan cheklash (runtime o'zgarishi — hozir emas).
+
+Boshqa barcha transition (approve/report/reopen/hr/dispute/delegate) graf bilan 100% mos.
+
 ## Business Lifecycle bilan moslik (gap analiz)
 
 Universal Lifecycle (9 bosqich) ↔ hozirgi kod holatlari:

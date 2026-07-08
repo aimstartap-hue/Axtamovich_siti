@@ -19,6 +19,9 @@ describe("formatNumber — mingliklar probel bilan", () => {
   it("string raqamni ham qabul qiladi", () => {
     expect(formatNumber("1500000")).toBe("1 500 000");
   });
+  it("raqam bo'lmagan matn → bo'sh (NaN himoyasi)", () => {
+    expect(formatNumber("abc")).toBe("");
+  });
 });
 
 describe("parseNumber — matndan raqam", () => {
@@ -31,6 +34,9 @@ describe("parseNumber — matndan raqam", () => {
   });
   it("harflarni tozalaydi", () => {
     expect(parseNumber("1 500 so'm")).toBe(1500);
+  });
+  it("noto'g'ri format (1.2.3) → 0 (NaN himoyasi)", () => {
+    expect(parseNumber("1.2.3")).toBe(0);
   });
 });
 

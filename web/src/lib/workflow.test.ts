@@ -70,6 +70,9 @@ describe("nextStatusOnApprove — pul oqimi yo'nalishi", () => {
   it("maxsus threshold parametri ishlaydi", () => {
     expect(nextStatusOnApprove({ type: "maintenance", status: "pending_axo" }, 6_000_000, 5_000_000)).toBe("pending_ceo");
   });
+  it("noma'lum/terminal status — o'zgarmaydi (xavfsiz fallback)", () => {
+    expect(nextStatusOnApprove({ type: "maintenance", status: "closed" })).toBe("closed");
+  });
 });
 
 describe("tasdiqda qanday maydonlar to'ldiriladi", () => {

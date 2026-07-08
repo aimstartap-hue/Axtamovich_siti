@@ -14,7 +14,15 @@ describe("isValidTransition — ruxsat etilgan o'tishlar", () => {
     expect(isValidTransition("pending_axo", "closed")).toBe(false);      // AXO to'g'ridan yopa olmaydi
     expect(isValidTransition("pending_axo", "approved")).toBe(false);    // Moliyani chetlab o'tolmaydi
     expect(isValidTransition("closed", "pending_axo")).toBe(false);      // yopilgan qayta ochilmaydi
-    expect(isValidTransition("approved", "rejected")).toBe(false);       // tasdiqlangani rad etilmaydi
+    expect(isValidTransition("approved", "closed")).toBe(false);         // ijrosiz yopilmaydi
+  });
+  it("CEO/admin override: jarayondagi holatdan ham rad etish mumkin", () => {
+    // rejectAction guard bilan 1:1 (actions.ts): ceo/admin favqulodda rad etadi
+    expect(isValidTransition("approved", "rejected")).toBe(true);
+    expect(isValidTransition("funded", "rejected")).toBe(true);
+    expect(isValidTransition("manager_doing", "rejected")).toBe(true);
+    expect(isValidTransition("axo_review", "rejected")).toBe(true);
+    expect(isValidTransition("deadline_dispute", "rejected")).toBe(true);
   });
   it("noma'lum holat — false", () => {
     expect(isValidTransition("xyz", "closed")).toBe(false);

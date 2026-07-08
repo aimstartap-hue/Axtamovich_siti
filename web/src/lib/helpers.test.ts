@@ -47,6 +47,9 @@ describe("isAging — eskirgan (7 kundan ko'p ochiq yoki muddati o'tgan)", () =>
   it("yopilgan → false", () => {
     expect(isAging({ status: "closed", deadline: null, created_at: daysAgo(100) })).toBe(false);
   });
+  it("muddati o'tgan (deadline past) → aging, 7 kundan kam bo'lsa ham", () => {
+    expect(isAging({ status: "approved", deadline: daysAhead(-1), created_at: daysAgo(1) })).toBe(true);
+  });
 });
 
 describe("currentMonth", () => {
