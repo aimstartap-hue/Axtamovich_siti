@@ -23,3 +23,25 @@ describe("roleHasPerm — DEFAULT_PERMS fallback (orgId yo'q)", () => {
     expect(await roleHasPerm(sb, null, "admin", "nonexistent_perm")).toBe(false);
   });
 });
+
+// DB yozuvi standartni bekor qiladi (admin bergan/olib qo'ygan huquq ustun turadi).
+function mockSb(result: { data: unknown }) {
+  const chain = {
+    select: () => chain,
+    eq: () => chain,
+    maybeSingle: () => Promise.resolve(result),
+  };
+  return { from: () => chain } as unknown as Parameters<typeof roleHasPerm>[0];
+}
+
+describe("roleHasPerm — DB yozuvi (admin bergan huquq) standartdan ustun", () => {
+  it("DB huquq bersa — standart yo'q bo'lsa ham RUXSAT (finance ga threshold berildi)", async () => {
+    expect(await roleHasPerm(mockSb({ data: { allowed: true } }), "org1", "finance", "manage_ceo_threshold")).toBe(true);
+  });
+  it("DB huquq olib qo'ysa — standart bor bo'lsa ham RAD (admin dan settings olindi)", async () => {
+    expect(await roleHasPerm(mockSb({ data: { allowed: false } }), "org1", "admin", "manage_settings")).toBe(false);
+  });
+  it("DB yozuvi yo'q bo'lsa — standartga qaytadi", async () => {
+    expect(await roleHasPerm(mockSb({ data: null }), "org1", "finance", "manage_limits")).toBe(true);
+  });
+});

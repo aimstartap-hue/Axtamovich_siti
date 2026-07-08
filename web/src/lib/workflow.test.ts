@@ -4,6 +4,7 @@ import {
   setsDeadlineOnApprove, setsEstimateOnApprove, canSubmitReport,
   canDelegateToManager, canAxoReview, canView, canReopen, canSendToHr,
   canHrResolve, needsAction, formatDate,
+  canRequestDeadlineChange, canResolveDispute, NOTIFY_ROLES,
 } from "./workflow";
 import { DEFAULT_CEO_THRESHOLD } from "./constants";
 
@@ -180,5 +181,64 @@ describe("formatDate — o'zbekcha sana", () => {
   it("bo'sh qiymat — bo'sh string", () => {
     expect(formatDate(null)).toBe("");
     expect(formatDate(undefined)).toBe("");
+  });
+});
+
+describe("muddat nizosi (deadline dispute)", () => {
+  it("Moliya muddat o'zgarishini so'ray oladi (pending_finance, hali so'ralmagan)", () => {
+    expect(canRequestDeadlineChange({ status: "pending_finance", deadline_disputed: false }, "finance")).toBe(true);
+  });
+  it("allaqachon so'ralган bo'lsa — qayta so'rolmaydi", () => {
+    expect(canRequestDeadlineChange({ status: "pending_finance", deadline_disputed: true }, "finance")).toBe(false);
+  });
+  it("faqat finance", () => {
+    expect(canRequestDeadlineChange({ status: "pending_finance", deadline_disputed: false }, "ceo")).toBe(false);
+  });
+  it("nizoni faqat CEO hal qiladi", () => {
+    expect(canResolveDispute({ status: "deadline_dispute" }, "ceo")).toBe(true);
+    expect(canResolveDispute({ status: "deadline_dispute" }, "finance")).toBe(false);
+    expect(canResolveDispute({ status: "pending_finance" }, "ceo")).toBe(false);
+  });
+});
+
+describe("canView — regmen (regional menejer)", () => {
+  const req = { type: "maintenance" as const, status: "pending_finance", created_by: "u1", branch_id: 5 };
+  it("faqat maintenance turini ko'radi", () => {
+    expect(canView({ ...req, type: "new_branch" }, { id: "x", role: "regmen", branch_id: null })).toBe(false);
+  });
+  it("o'ziga biriktirilgan filiallar zayavkasini ko'radi", () => {
+    expect(canView(req, { id: "x", role: "regmen", branch_id: null }, { regmenBranchIds: [5, 6] })).toBe(true);
+    expect(canView(req, { id: "x", role: "regmen", branch_id: null }, { regmenBranchIds: [7] })).toBe(false);
+  });
+  it("o'zi yaratgan zayavkani doim ko'radi", () => {
+    expect(canView(req, { id: "u1", role: "regmen", branch_id: null }, { regmenBranchIds: [] })).toBe(true);
+  });
+});
+
+describe("needsAction — barcha yo'nalishlar", () => {
+  const mk = (status: string) => ({ type: "maintenance" as const, status, created_by: "u", branch_id: 1, rejected_by: null, deadline_disputed: false });
+  it("CEO uchun nizoда harakat kerak", () => {
+    expect(needsAction(mk("deadline_dispute"), "ceo")).toBe(true);
+  });
+  it("AXO uchun axo_review da harakat kerak", () => {
+    expect(needsAction(mk("axo_review"), "axo")).toBe(true);
+  });
+  it("HR uchun hr_review da harakat kerak", () => {
+    expect(needsAction(mk("hr_review"), "hr")).toBe(true);
+  });
+  it("hisobot topshirish ham harakat (approved + axo)", () => {
+    expect(needsAction(mk("approved"), "axo")).toBe(true);
+  });
+});
+
+describe("NOTIFY_ROLES — bildirishnoma yo'nalishi (kimga xabar boradi)", () => {
+  it("har bosqichda to'g'ri rol(lar)", () => {
+    expect(NOTIFY_ROLES.pending_axo).toEqual(["axo"]);
+    expect(NOTIFY_ROLES.pending_ceo).toEqual(["ceo"]);
+    expect(NOTIFY_ROLES.pending_finance).toEqual(["finance"]);
+    expect(NOTIFY_ROLES.report_submitted).toEqual(["ceo", "finance"]);
+    expect(NOTIFY_ROLES.funded).toEqual(["open_group"]);
+    expect(NOTIFY_ROLES.deadline_dispute).toEqual(["ceo"]);
+    expect(NOTIFY_ROLES.hr_review).toEqual(["hr"]);
   });
 });
