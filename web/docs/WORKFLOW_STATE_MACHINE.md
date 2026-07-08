@@ -35,13 +35,17 @@ stateDiagram-v2
 
 `actions.ts` dagi BARCHA status o'zgarishlari grafga mos (drift-test tasdiqlaydi), bitta nozik holat bilan:
 
-- **CEO/admin favqulodda rad etish (override):** `rejectAction` guard'i `canApprove YOKI ceo/admin`
-  bo'lgani uchun CEO/admin **jarayondagi** holatlardan ham (approved, funded, manager_doing,
-  axo_review, deadline_dispute) rad eta oladi. Graf shu haqiqatni aks ettiradi (`→ rejected`).
-- **⚠️ Ochiq xavf:** guard terminal holatni (closed) istisno qilmaydi — ya'ni CEO/admin
-  texnik jihatdan **yopilgan** zayavkani ham rejected qila oladi. Bu grafga KIRITILMAGAN
-  (noto'g'ri deb baholanadi). Tavsiya: deploy ochilgach `rejectAction` guard'ini
-  `!isTerminal(status)` bilan cheklash (runtime o'zgarishi — hozir emas).
+**Graf o'zgartirilMADI** (audit-only rejim). `workflow-transitions.ts` — jarayonning
+MO'LJALLANGAN normal oqimi. Quyidagi ikki topilma faqat shu hujjatда qayd etiladi:
+
+- **CEO/admin favqulodda rad etish (override):** `rejectAction` guard'i `canApprove YOKI
+  ceo/admin` bo'lgani uchun CEO/admin **jarayondagi** holatlardan ham (approved, funded,
+  manager_doing, axo_review, deadline_dispute) rad eta oladi. Bu grafда yo'q (normal oqim
+  emas). Tavsiya: kod bilan tasdiqlangan biznes qoidasi sifatida qoldirilsa — grafga
+  "override" belgisi bilan qo'shiladi; aks holda cheklanadi. Qarorni biznes beradi.
+- **⚠️ Ochiq xavf:** guard terminal holatni (closed) istisno qilmaydi — CEO/admin texnik
+  jihatdan **yopilgan** zayavkani ham rejected qila oladi. Tavsiya: deploy ochilgach
+  `rejectAction` guard'iga `!isTerminal(status)` qo'shish (runtime o'zgarishi — hozir emas).
 
 Boshqa barcha transition (approve/report/reopen/hr/dispute/delegate) graf bilan 100% mos.
 

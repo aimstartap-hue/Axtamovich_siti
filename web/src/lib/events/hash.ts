@@ -7,22 +7,9 @@
 import { createHash } from "node:crypto";
 import type { DomainEvent } from "./contracts";
 
-/**
- * Deterministik JSON — kalitlar tartibidan qat'i nazar bir xil natija.
- * Xavfsizlik: NaN/Infinity hashlab bo'lmaydi (jim `null` ga aylanib moliyaviy
- * qiymatni yashirmasligi uchun throw qiladi). Date — ISO stringga (aks holda `{}`
- * bo'lib har xil sanalar bir xil hash berardi).
- */
+/** Deterministik JSON — kalitlar tartibidan qat'i nazar bir xil natija. */
 export function canonicalize(value: unknown): string {
-  if (value === null || value === undefined) return "null";
-  const t = typeof value;
-  if (t === "number") {
-    if (!Number.isFinite(value as number)) throw new Error("canonicalize: NaN/Infinity hashlab bo'lmaydi");
-    return JSON.stringify(value);
-  }
-  if (t === "bigint") return JSON.stringify((value as bigint).toString());
-  if (t === "string" || t === "boolean") return JSON.stringify(value);
-  if (value instanceof Date) return JSON.stringify(value.toISOString());
+  if (value === null || typeof value !== "object") return JSON.stringify(value) ?? "null";
   if (Array.isArray(value)) return "[" + value.map(canonicalize).join(",") + "]";
   const obj = value as Record<string, unknown>;
   const keys = Object.keys(obj).sort();
@@ -34,28 +21,17 @@ export function hashEvent(event: Omit<DomainEvent, "hash">): string {
   return createHash("sha256").update(canonicalize(event)).digest("hex");
 }
 
-export type ChainResult = { ok: boolean; brokenAt?: string; reason?: string };
-
 /**
- * Zanjir yaxlitligini tekshiradi. Aniqlanadigan buzilishlar:
- *  - duplicate_id      — bir event id ikki marta
- *  - sequence_break    — uzilish (1→2→4) yoki takror (2,2) yoki tartibsizlik
- *  - prev_hash_mismatch— noto'g'ri bog'lanish (o'chirilgan/qo'shilgan yozuv)
- *  - hash_mismatch     — mazmun o'zgartirilgan (tamper)
+ * Zanjir yaxlitligini tekshiradi: har event to'g'ri prevHash ga bog'langan va
+ * hashi o'z mazmuniga mos. Buzilgan joyni qaytaradi (tamper-evidence).
  */
-export function verifyChain(events: DomainEvent[]): ChainResult {
-  let prevHash: string | null = null;
-  let prevSeq: number | null = null;
-  const seenIds = new Set<string>();
+export function verifyChain(events: DomainEvent[]): { ok: boolean; brokenAt?: string } {
+  let prev: string | null = null;
   for (const e of events) {
-    if (seenIds.has(e.id)) return { ok: false, brokenAt: e.id, reason: "duplicate_id" };
-    seenIds.add(e.id);
-    if (prevSeq !== null && e.sequence !== prevSeq + 1) return { ok: false, brokenAt: e.id, reason: "sequence_break" };
-    if (e.prevHash !== prevHash) return { ok: false, brokenAt: e.id, reason: "prev_hash_mismatch" };
+    if (e.prevHash !== prev) return { ok: false, brokenAt: e.id };
     const { hash, ...rest } = e;
-    if (hashEvent(rest) !== hash) return { ok: false, brokenAt: e.id, reason: "hash_mismatch" };
-    prevHash = e.hash;
-    prevSeq = e.sequence;
+    if (hashEvent(rest) !== hash) return { ok: false, brokenAt: e.id };
+    prev = e.hash;
   }
   return { ok: true };
 }

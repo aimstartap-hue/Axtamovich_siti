@@ -15,20 +15,16 @@ export type WorkflowStatus =
   | "approved" | "funded" | "manager_doing" | "axo_review"
   | "report_submitted" | "closed" | "rejected" | "hr_review";
 
-// ESLATMA (audit 2026-07): "→ rejected" ba'zi jarayondagi holatlarda CEO/admin
-// FAVQULODDA override huquqi bilan mumkin (rejectAction guard: canApprove YOKI
-// ceo/admin). Shuning uchun approved/funded/manager_doing/axo_review/deadline_dispute
-// dan ham rejected ruxsat etilgan (faqat ceo/admin). Bu — actions.ts bilan 1:1 moslik.
 /** from-holatdan ruxsat etilgan to-holatlar. Bo'sh massiv = terminal holat. */
 export const ALLOWED_TRANSITIONS: Record<WorkflowStatus, WorkflowStatus[]> = {
   pending_axo:      ["pending_ceo", "pending_finance", "manager_doing", "rejected"],
   pending_ceo:      ["pending_finance", "rejected"],
   pending_finance:  ["approved", "funded", "deadline_dispute", "rejected"],
-  deadline_dispute: ["pending_finance", "rejected"],           // rejected = ceo/admin override
-  approved:         ["report_submitted", "rejected"],          // rejected = ceo/admin override
-  funded:           ["report_submitted", "rejected"],          // rejected = ceo/admin override
-  manager_doing:    ["axo_review", "rejected"],                // rejected = ceo/admin override
-  axo_review:       ["report_submitted", "rejected"],          // rejected = ceo/admin override
+  deadline_dispute: ["pending_finance"],
+  approved:         ["report_submitted"],
+  funded:           ["report_submitted"],
+  manager_doing:    ["axo_review"],
+  axo_review:       ["report_submitted"],
   report_submitted: ["closed", "rejected"],
   rejected:         ["pending_axo", "hr_review"],
   hr_review:        ["closed"],
