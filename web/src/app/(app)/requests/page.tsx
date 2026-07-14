@@ -1,42 +1,38 @@
+import { Suspense } from "react";
 import Link from "next/link";
+import { Plus } from "lucide-react";
 import { requireProfile } from "@/lib/auth";
 import { createClient } from "@/lib/supabase/server";
-import RequestCard from "@/components/RequestCard";
+import { branchLabel } from "@/lib/helpers";
 import RequestFilters from "./RequestFilters";
-import type { RequestRow } from "@/lib/types";
+import RequestsBoard, { type RequestsSP } from "./RequestsBoard";
+import BoardSkeleton from "./BoardSkeleton";
 
-export default async function RequestsPage({
-  searchParams,
-}: {
-  searchParams: Promise<{ q?: string; status?: string; type?: string }>;
-}) {
+export default async function RequestsPage({ searchParams }: { searchParams: Promise<RequestsSP> }) {
   await requireProfile();
   const sp = await searchParams;
   const sb = await createClient();
+  const { data: branches } = await sb.from("branches").select("id, name");
+  const branchList = (branches ?? []).map((b) => ({ id: b.id, name: branchLabel(b.name) }));
 
-  let query = sb.from("requests").select("*").order("id", { ascending: false });
-  if (sp.status) query = query.eq("status", sp.status);
-  if (sp.type) query = query.eq("type", sp.type);
-  const { data } = await query;
-  let list = (data ?? []) as RequestRow[];
-  if (sp.q) {
-    const q = sp.q.toLowerCase();
-    list = list.filter((r) => r.title.toLowerCase().includes(q) || String(r.id) === q);
-  }
+  // Filter o'zgarganda Suspense fallback (skeleton) ko'rsatiladi
+  const key = [sp.q, sp.status, sp.type, sp.priority, sp.branch, sp.owner, sp.from, sp.to, sp.kpi].map((v) => v ?? "").join("|");
 
   return (
     <div className="space-y-4">
       <div className="flex items-center justify-between gap-3">
-        <h1 className="text-xl font-bold">Zayavkalar</h1>
-        <Link href="/requests/new" className="btn btn-brand">+ Yangi</Link>
+        <div>
+          <h1 className="text-xl font-bold tracking-tight">Zayavkalar</h1>
+          <p className="text-xs" style={{ color: "var(--muted)" }}>Interaktiv boshqaruv paneli</p>
+        </div>
+        <Link href="/requests/new" className="btn btn-brand flex items-center gap-1.5 !py-2"><Plus size={16} /> Yangi zayavka</Link>
       </div>
 
-      <RequestFilters />
+      <RequestFilters branches={branchList} />
 
-      <div className="space-y-2">
-        {list.map((r) => <RequestCard key={r.id} r={r} />)}
-        {list.length === 0 && <div className="card p-6 text-center text-muted text-sm">Zayavka topilmadi.</div>}
-      </div>
+      <Suspense key={key} fallback={<BoardSkeleton />}>
+        <RequestsBoard sp={sp} branches={branchList} />
+      </Suspense>
     </div>
   );
 }

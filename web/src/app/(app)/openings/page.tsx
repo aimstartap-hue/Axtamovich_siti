@@ -1,181 +1,171 @@
 import { redirect } from "next/navigation";
-import Link from "next/link";
 import { requireProfile } from "@/lib/auth";
 import { createClient } from "@/lib/supabase/server";
 import { formatMoney } from "@/lib/format";
 import { formatDate } from "@/lib/workflow";
 import { toSom, type Rates } from "@/lib/currency";
-import { OPENING_STAGES, OPENING_ROLES } from "@/lib/constants";
-import StatusBadge from "@/components/StatusBadge";
-import ExportCsv from "@/components/ExportCsv";
+import { OPENING_STAGES_FULL, OPENING_ROLES, STATUS_LABELS } from "@/lib/constants";
+import { currentMonth } from "@/lib/helpers";
+import { evaluateRisk, worstLevel } from "@/lib/risk/engine";
+import { weightedProgress } from "@/lib/opening/template";
+import { norm, type Purchase, type RequestDoc, type RiskFinding, type RiskLevel } from "@/lib/risk/types";
+import { priceFinding, repeatFinding, docsFindings, REPEAT_WINDOW_DAYS } from "@/lib/risk/purchase";
+import RequestKpis, { type KpiItem } from "@/app/(app)/requests/RequestKpis";
+import OpeningFilters from "./OpeningFilters";
+import OpeningsBoard, { type OpeningProject, type OpeningExpense, type CategoryLine, type OpeningEvent } from "./OpeningsBoard";
 
-const CLOSED = "closed";
 const DEAD = ["closed", "rejected"];
+const toneOf = (s: string): RiskLevel | "info" => s === "closed" ? "good" : s === "rejected" ? "critical" : ["pending_axo", "pending_ceo", "pending_finance"].includes(s) ? "attention" : "info";
 
-function daysBetween(a: string, b: string) {
-  return Math.max(0, Math.round((new Date(b).getTime() - new Date(a).getTime()) / 86_400_000));
-}
+type SP = Promise<{ month?: string; status?: string; q?: string; kpi?: string }>;
 
-export default async function OpeningsPage() {
+export default async function OpeningsPage({ searchParams }: { searchParams: SP }) {
   const profile = await requireProfile();
   if (!OPENING_ROLES.includes(profile.role)) redirect("/");
   const sb = await createClient();
+  const sp = await searchParams;
+  const now = new Date();
+  const month = currentMonth();
 
-  const [{ data: reqs }, { data: rateRows }, { data: rejects }] = await Promise.all([
-    sb.from("requests").select("id, title, status, estimated_amount, estimated_currency, rating, paid, paid_at, deadline, created_at, opening_stages, opening_project, reports(total, created_at)").eq("type", "new_branch").order("id", { ascending: false }),
+  const { data: reqs } = await sb.from("requests")
+    .select("id, title, status, estimated_amount, estimated_currency, deadline, created_at, created_by, opening_stages, opening_project, opening_budget")
+    .eq("type", "new_branch").order("id", { ascending: false });
+  const projRows = (reqs ?? []) as {
+    id: number; title: string; status: string; estimated_amount: number | null; estimated_currency: string | null; deadline: string | null;
+    created_at: string; created_by: string; opening_stages: Record<string, boolean> | null; opening_project: string | null; opening_budget: Record<string, number> | null;
+  }[];
+  const ids = projRows.map((p) => p.id);
+
+  const [{ data: reports }, { data: events }, { data: people }, { data: rateRows }, { data: bench }] = await Promise.all([
+    ids.length ? sb.from("reports").select("id, request_id, total, created_at, photos_json").in("request_id", ids) : Promise.resolve({ data: [] }),
+    ids.length ? sb.from("events").select("request_id, action, user_id, comment, created_at").in("request_id", ids).order("created_at", { ascending: true }) : Promise.resolve({ data: [] }),
+    sb.from("profiles").select("id, full_name"),
     sb.from("exchange_rates").select("currency, rate"),
-    sb.from("events").select("comment, created_at, request:requests(id, title, type)").eq("action", "Rad etdi").order("id", { ascending: false }).limit(50),
+    sb.from("report_items").select("name, price"),
   ]);
 
+  const reportRows = (reports ?? []) as { id: number; request_id: number; total: number | null; created_at: string; photos_json: string[] | null }[];
+  const reportIds = reportRows.map((r) => r.id);
+  const { data: items } = reportIds.length
+    ? await sb.from("report_items").select("report_id, name, category, supplier, qty, price").in("report_id", reportIds)
+    : { data: [] };
+
+  const nameOf = new Map((people ?? []).map((u) => [u.id, u.full_name]));
   const rates: Rates = {};
   for (const r of rateRows ?? []) rates[(r as { currency: string }).currency] = (r as { rate: number }).rate;
+  const hasArr = (v: unknown) => Array.isArray(v) && v.length > 0;
 
-  type Proj = {
-    id: number; title: string; status: string; planned: number; actual: number;
-    currency: string | null; rating: number | null; paid: boolean; days: number | null; created_at: string;
-    stagePct: number; project: string | null;
-  };
-  const projects: Proj[] = (reqs ?? []).map((r) => {
-    const rr = r as unknown as {
-      id: number; title: string; status: string; estimated_amount: number | null; estimated_currency: string | null;
-      rating: number | null; paid: boolean | null; created_at: string; reports: { total: number; created_at: string }[] | null;
-      opening_stages: Record<string, boolean> | null; opening_project: string | null;
-    };
-    const planned = toSom(Number(rr.estimated_amount ?? 0), rr.estimated_currency, rates);
-    const reps = rr.reports ?? [];
-    const actual = reps.reduce((s, x) => s + (x.total || 0), 0);
-    const lastRep = reps.sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime())[0];
-    const stagesDone = OPENING_STAGES.filter((s) => rr.opening_stages?.[s.key]).length;
+  // Eng arzon narx (butun tizim) — narx anomaliyasi uchun
+  const benchmarkMin = new Map<string, number>();
+  for (const it of (bench ?? []) as { name: string; price: number | null }[]) { const p = Number(it.price) || 0; if (it.name && p > 0) { const k = norm(it.name); const m = benchmarkMin.get(k); if (m == null || p < m) benchmarkMin.set(k, p); } }
+
+  // Hisobot -> zayavka
+  const reportInfo = new Map<number, { reqId: number; createdAt: string; hasPhotos: boolean }>();
+  const reportsByReq = new Map<number, { total: number; hasPhotos: boolean }[]>();
+  for (const r of reportRows) {
+    const hasPhotos = hasArr(r.photos_json);
+    reportInfo.set(r.id, { reqId: r.request_id, createdAt: r.created_at, hasPhotos });
+    (reportsByReq.get(r.request_id) ?? reportsByReq.set(r.request_id, []).get(r.request_id)!).push({ total: Number(r.total) || 0, hasPhotos });
+  }
+  // Xaridlar -> zayavka
+  type It = { report_id: number; name: string; category: string | null; supplier: string | null; qty: number | null; price: number | null };
+  const itemsByReq = new Map<number, { name: string; category: string | null; supplier: string | null; qty: number; price: number; at: string; hasPhotos: boolean }[]>();
+  for (const it of (items ?? []) as It[]) {
+    const ri = reportInfo.get(it.report_id); if (!ri) continue;
+    (itemsByReq.get(ri.reqId) ?? itemsByReq.set(ri.reqId, []).get(ri.reqId)!).push({ name: it.name, category: it.category, supplier: it.supplier, qty: Number(it.qty) || 0, price: Number(it.price) || 0, at: ri.createdAt, hasPhotos: ri.hasPhotos });
+  }
+  // Timeline
+  const eventsByReq = new Map<number, OpeningEvent[]>();
+  for (const e of (events ?? []) as { request_id: number; action: string; user_id: string | null; comment: string | null; created_at: string }[]) {
+    (eventsByReq.get(e.request_id) ?? eventsByReq.set(e.request_id, []).get(e.request_id)!).push({ action: e.action, who: e.user_id ? nameOf.get(e.user_id) ?? "—" : "Tizim", at: formatDate(e.created_at), comment: e.comment });
+  }
+
+  // --- Loyihalarni qurish ---
+  const all: OpeningProject[] = projRows.map((r) => {
+    const budget = toSom(Number(r.estimated_amount ?? 0), r.estimated_currency, rates);
+    const reps = reportsByReq.get(r.id) ?? [];
+    const spent = reps.reduce((s, x) => s + x.total, 0);
+    const projItems = itemsByReq.get(r.id) ?? [];
+    const stages = OPENING_STAGES_FULL.map((s) => ({ key: s.key, label: s.label, done: !!r.opening_stages?.[s.key] }));
+    const firstPending = stages.find((s) => !s.done);
+    const progress = weightedProgress(r.opening_stages);
+
+    // Takroriy xarid (loyiha ichida, 15 kun)
+    const rc = new Map<string, number>();
+    for (const it of projItems) if (now.getTime() - new Date(it.at).getTime() <= REPEAT_WINDOW_DAYS * 86_400_000) { const k = norm(it.name); rc.set(k, (rc.get(k) ?? 0) + 1); }
+
+    const expenses: OpeningExpense[] = projItems.map((it) => {
+      const findings: RiskFinding[] = [];
+      const pf = priceFinding(it.name, it.price, benchmarkMin); if (pf) findings.push(pf);
+      const rf = repeatFinding(it.name, rc.get(norm(it.name)) ?? 0); if (rf) findings.push(rf);
+      findings.push(...docsFindings(true, it.hasPhotos));
+      return { date: formatDate(it.at), reqId: r.id, name: it.name, category: it.category, amount: it.qty * it.price, supplier: it.supplier, employee: nameOf.get(r.created_by) ?? "—", hasReceipt: true, hasPhoto: it.hasPhotos, findings, riskLevel: findings.length ? worstLevel(findings.map((f) => f.level)) : "good" };
+    });
+
+    const purchases: Purchase[] = projItems.map((it) => ({ name: it.name, price: it.price, qty: it.qty, at: it.at }));
+    const docs: RequestDoc[] = [{ id: r.id, status: r.status, hasReport: reps.length > 0, hasPhotos: reps.some((x) => x.hasPhotos) }];
+    const risk = evaluateRisk({ limit: budget, spent, purchases, benchmarkMin, requests: docs, now });
+
+    // Kategoriya reja/sarf
+    const catPlan = new Map<string, number>();
+    for (const [k, v] of Object.entries(r.opening_budget ?? {})) catPlan.set(k, Number(v));
+    const catSpent = new Map<string, number>();
+    for (const it of projItems) if (it.category) catSpent.set(it.category, (catSpent.get(it.category) ?? 0) + it.qty * it.price);
+    const categories: CategoryLine[] = [...new Set([...catPlan.keys(), ...catSpent.keys()])]
+      .map((name) => ({ name, plan: catPlan.get(name) ?? 0, spent: catSpent.get(name) ?? 0 })).sort((a, b) => b.spent - a.spent);
+
+    const timeline = eventsByReq.get(r.id) ?? [];
+    const facets: string[] = [];
+    if (!DEAD.includes(r.status)) facets.push("active");
+    if (r.status === "closed") facets.push("done");
+    if (risk.level !== "good") facets.push("risky");
+    if (budget > 0 && spent > budget) facets.push("over_budget");
+    if (r.deadline?.startsWith(month)) facets.push("this_month_plan");
+
     return {
-      id: rr.id, title: rr.title, status: rr.status, planned, actual,
-      currency: rr.estimated_currency, rating: rr.rating, paid: !!rr.paid,
-      days: lastRep ? daysBetween(rr.created_at, lastRep.created_at) : null, created_at: rr.created_at,
-      stagePct: Math.round((stagesDone / OPENING_STAGES.length) * 100), project: rr.opening_project,
+      id: r.id, title: r.title, project: r.opening_project, manager: nameOf.get(r.created_by) ?? "—", address: r.opening_project ?? "—",
+      startDate: formatDate(r.created_at), plannedDate: r.deadline ? formatDate(r.deadline) : "—", actualDate: r.status === "closed" && timeline.length ? timeline[timeline.length - 1].at : "—",
+      statusLabel: STATUS_LABELS[r.status] ?? r.status, statusTone: toneOf(r.status), note: "",
+      stages, progress, currentStage: firstPending ? firstPending.label : "Ochildi", budget, spent, remaining: budget - spent,
+      risk, facets, timeline, categories, expenses, photoCount: reps.filter((x) => x.hasPhotos).length,
     };
   });
 
-  const active = projects.filter((p) => !DEAD.includes(p.status));
-  const done = projects.filter((p) => p.status === CLOSED && p.actual > 0);
-  const totalPlanned = active.reduce((s, p) => s + p.planned, 0);
-  const totalSpent = done.reduce((s, p) => s + p.actual, 0);
-  const avgCost = done.length ? Math.round(totalSpent / done.length) : 0;
-  const avgDays = done.filter((p) => p.days != null).length
-    ? Math.round(done.reduce((s, p) => s + (p.days ?? 0), 0) / done.filter((p) => p.days != null).length) : 0;
+  // --- Server filtrlar (oy/holat/qidiruv) ---
+  const q = (sp.q ?? "").toLowerCase().trim();
+  const scope = all.filter((p) => {
+    if (sp.month && !(p.startDate.split(".").reverse().join("-").startsWith(sp.month) || (p.plannedDate !== "—" && p.plannedDate.split(".").reverse().join("-").startsWith(sp.month)))) return false;
+    if (sp.status === "active" && !p.facets.includes("active")) return false;
+    if (sp.status === "done" && !p.facets.includes("done")) return false;
+    if (sp.status === "problem" && !p.facets.includes("risky")) return false;
+    if (q && !p.title.toLowerCase().includes(q)) return false;
+    return true;
+  });
 
-  // Ochilish rad sabablari (punkt 22) — faqat new_branch
-  const openRejects = (rejects ?? []).map((e) => {
-    const ee = e as unknown as { comment: string | null; created_at: string; request: { id: number; title: string; type: string } | { id: number; title: string; type: string }[] | null };
-    const rq = Array.isArray(ee.request) ? ee.request[0] : ee.request;
-    return { id: rq?.id, title: rq?.title ?? "—", type: rq?.type, comment: ee.comment, date: ee.created_at };
-  }).filter((r) => r.type === "new_branch");
-
-  // Solishtiruv/reyting (punkt 25) — yopilgan ochilishlar narx bo'yicha
-  const ranking = [...done].sort((a, b) => a.actual - b.actual);
+  // --- KPI (scope bo'yicha, clickable facet) ---
+  const cnt = (f: string) => scope.filter((p) => p.facets.includes(f)).length;
+  const sum = (sel: (p: OpeningProject) => number) => scope.reduce((s, p) => s + sel(p), 0);
+  const kpis: KpiItem[] = [
+    { icon: "🏪", label: "Jami loyihalar", value: String(scope.length), sub: "ochilish", accent: "#4f9bf5" },
+    { icon: "🚧", label: "Jarayonda", value: String(cnt("active")), sub: "faol loyiha", accent: "#fb923c", facet: "active" },
+    { icon: "✅", label: "Tugallandi", value: String(cnt("done")), sub: "ochilgan", accent: "#22c55e", facet: "done" },
+    { icon: "⚠️", label: "Muammoli", value: String(cnt("risky")), sub: "AI xavf", accent: "#f87171", facet: "risky" },
+    { icon: "💰", label: "Jami byudjet", value: formatMoney(sum((p) => p.budget)), sub: "rejalashtirilgan", accent: "#4f9bf5" },
+    { icon: "💵", label: "Jami sarflangan", value: formatMoney(sum((p) => p.spent)), sub: "haqiqiy", accent: "#22c55e" },
+    { icon: "⏳", label: "Shu oy ochilishi", value: String(cnt("this_month_plan")), sub: "rejalashtirilgan", accent: "#fbbf24", facet: "this_month_plan" },
+    { icon: "🔴", label: "Byudjetdan oshgan", value: String(cnt("over_budget")), sub: "filial", accent: "#f87171", facet: "over_budget" },
+  ];
 
   return (
     <div className="space-y-4">
-      <h1 className="text-xl font-bold">🏗 Ochilish loyihalari</h1>
-
-      {/* Rollup (punkt 10, 17) */}
-      <div className="card p-4">
-        <div className="grid grid-cols-2 md:grid-cols-4 gap-3 text-sm">
-          <Stat label="Faol loyihalar" value={String(active.length)} />
-          <Stat label="Rejalashtirilgan" value={formatMoney(totalPlanned)} />
-          <Stat label="O'rtacha ochilish narxi" value={formatMoney(avgCost)} />
-          <Stat label="O'rtacha muddat" value={avgDays ? `${avgDays} kun` : "—"} />
-        </div>
+      <div>
+        <h1 className="text-xl font-bold tracking-tight">Ochilish nazorati</h1>
+        <p className="text-xs" style={{ color: "var(--muted)" }}>Filial ochilish jarayoni · bosqichlar · xarajatlar · AI xavf tahlili</p>
       </div>
 
-      {/* Loyihalar ro'yxati + CSV (punkt 3, 5, 6, 7, 8, 21) */}
-      <div className="card p-4">
-        <div className="flex items-center justify-between mb-3">
-          <h2 className="font-semibold">Loyihalar</h2>
-          <ExportCsv filename="ochilish-loyihalari"
-            headers={["Loyiha", "Holat", "Reja", "Fakt", "Farq", "Kun"]}
-            rows={projects.map((p) => [p.title, p.status, p.planned, p.actual, p.actual - p.planned, p.days ?? ""])} />
-        </div>
-        {projects.length === 0 ? <Empty text="Hali ochilish loyihasi yo'q." /> : (
-          <div className="space-y-3">
-            {projects.map((p) => {
-              const diff = p.actual - p.planned;
-              const over = diff > 0 && p.actual > 0;
-              const pct = p.planned ? Math.min(Math.round((p.actual / p.planned) * 100), 100) : 0;
-              return (
-                <div key={p.id} className="border-t border-border pt-3 first:border-0 first:pt-0">
-                  <div className="flex flex-wrap items-center justify-between gap-2">
-                    <div className="flex items-center gap-2 flex-wrap">
-                      <Link href={`/requests/${p.id}`} className="font-medium text-brand">{p.title}</Link>
-                      {p.project && <span className="text-xs bg-surface-2 rounded px-1.5 py-0.5 text-muted">🏷 {p.project}</span>}
-                    </div>
-                    <div className="flex items-center gap-2">
-                      {p.paid && <span className="text-xs text-success">✓ To'langan</span>}
-                      <StatusBadge status={p.status} />
-                    </div>
-                  </div>
-                  <div className="flex flex-wrap gap-x-4 gap-y-0.5 text-xs mt-1 text-muted">
-                    <span>Reja: {formatMoney(p.planned)}{p.currency && p.currency !== "so'm" ? ` (${p.currency})` : ""}</span>
-                    {p.actual > 0 && <span>Fakt: {formatMoney(p.actual)}</span>}
-                    {p.actual > 0 && <span className={over ? "text-danger font-semibold" : "text-success font-semibold"}>Farq: {over ? "+" : ""}{formatMoney(diff)}</span>}
-                    {!DEAD.includes(p.status) && <span>{p.stagePct}% bosqich</span>}
-                    {p.days != null && <span>{p.days} kun</span>}
-                    {p.rating ? <span>{"⭐".repeat(p.rating)}</span> : null}
-                  </div>
-                  {p.planned > 0 && p.actual > 0 && (
-                    <div className="h-1.5 rounded-full bg-surface-2 overflow-hidden mt-1">
-                      <div className={`h-full ${over ? "bg-danger" : "bg-brand"}`} style={{ width: `${pct}%` }} />
-                    </div>
-                  )}
-                </div>
-              );
-            })}
-          </div>
-        )}
-      </div>
-
-      {/* Solishtiruv/reyting (punkt 25) */}
-      {ranking.length > 1 && (
-        <div className="card p-4">
-          <h2 className="font-semibold mb-3">Ochilishlar solishtiruvi (arzondan qimmatga)</h2>
-          <div className="space-y-1">
-            {ranking.map((p, i) => (
-              <div key={p.id} className="flex justify-between text-sm">
-                <span>{i + 1}. {p.title} {p.rating ? `· ${"⭐".repeat(p.rating)}` : ""}</span>
-                <span className="font-medium">{formatMoney(p.actual)} {p.days != null ? `· ${p.days} kun` : ""}</span>
-              </div>
-            ))}
-          </div>
-        </div>
-      )}
-
-      {/* Rad sabablari (punkt 22) */}
-      {openRejects.length > 0 && (
-        <div className="card p-4">
-          <h2 className="font-semibold mb-3">Rad etilgan ochilish so'rovlari</h2>
-          <div className="space-y-2">
-            {openRejects.map((r, i) => (
-              <div key={i} className="flex flex-wrap justify-between gap-2 text-sm border-t border-border pt-2 first:border-0 first:pt-0">
-                <Link href={`/requests/${r.id}`} className="text-brand">#{r.id} {r.title}</Link>
-                <div className="text-right">
-                  <div className={r.comment ? "" : "text-muted"}>{r.comment || "sabab yo'q"}</div>
-                  <div className="text-xs text-muted">{formatDate(r.date)}</div>
-                </div>
-              </div>
-            ))}
-          </div>
-        </div>
-      )}
+      <OpeningFilters />
+      <RequestKpis items={kpis} />
+      <OpeningsBoard projects={scope} />
     </div>
   );
-}
-
-function Stat({ label, value }: { label: string; value: string }) {
-  return (
-    <div>
-      <div className="text-xs text-muted">{label}</div>
-      <div className="font-semibold">{value}</div>
-    </div>
-  );
-}
-function Empty({ text }: { text: string }) {
-  return <div className="text-center text-muted text-sm py-4">{text}</div>;
 }

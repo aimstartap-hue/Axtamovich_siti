@@ -19,7 +19,7 @@ export async function saveThreshold(formData: FormData) {
     { org_id: profile.org_id, key: "ceo_threshold", value }, { onConflict: "org_id,key" },
   );
   await logAudit(sb, profile.org_id, profile.id, "threshold", `CEO chegarasi ${Number(value).toLocaleString("ru-RU")} so'm ga o'zgartirildi`);
-  revalidatePath("/analytics");
+  revalidatePath("/");
   revalidatePath("/admin");
 }
 
@@ -38,5 +38,5 @@ export async function updateRates() {
     org_id: profile.org_id, currency: c, rate: rates[c], updated_at: new Date().toISOString(),
   }));
   if (rows.length) await sb.from("exchange_rates").upsert(rows, { onConflict: "org_id,currency" });
-  revalidatePath("/analytics");
+  revalidatePath("/");
 }

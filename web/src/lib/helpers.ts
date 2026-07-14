@@ -35,7 +35,34 @@ export function isOverdue(r: Pick<RequestRow, "status" | "deadline">): boolean {
   return isOpen(r.status) && !!r.deadline && new Date(r.deadline) < new Date();
 }
 
+/**
+ * Filial nomidan qisqa yorliq — kompaniya prefiksini olib tashlaydi.
+ * "Zahratun fast-food (Jondor-1)" -> "Jondor-1"; "G'ijduvon" -> "G'ijduvon".
+ */
+export function branchLabel(name: string): string {
+  const m = name.match(/\(([^)]+)\)\s*$/);
+  return (m ? m[1] : name).trim();
+}
+
 export function currentMonth(): string {
   const d = new Date();
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`;
+}
+
+/** Joriy oyning birinchi va oxirgi kuni (YYYY-MM-DD) — default filter uchun. */
+export function currentMonthBounds(now: Date = new Date()): { from: string; to: string } {
+  const first = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), 1));
+  const last = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth() + 1, 0));
+  const f = (x: Date) => x.toISOString().slice(0, 10);
+  return { from: f(first), to: f(last) };
+}
+
+/**
+ * 'YYYY-MM' -> { start, end } UTC chegaralari (DB filtri uchun).
+ * created_at.gte(start) & .lt(end) — `created_at.startsWith(month)` (UTC) bilan EKVIVALENT.
+ */
+export function monthRange(month: string): { start: string; end: string } {
+  const [y, m] = month.split("-").map(Number);
+  const end = m >= 12 ? `${y + 1}-01-01` : `${y}-${String(m + 1).padStart(2, "0")}-01`;
+  return { start: `${month}-01`, end };
 }

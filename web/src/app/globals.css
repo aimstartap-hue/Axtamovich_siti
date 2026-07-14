@@ -20,14 +20,17 @@
 
 :root[data-theme="dark"],
 html.dark {
-  --bg: #0b0e14;
-  --surface: #141a22;
-  --surface-2: #1b222c;
-  --border: #26303c;
-  --text: #e8ebf0;
+  --bg: #0f172a;
+  --surface: #1e293b;
+  --surface-2: #273449;
+  --border: #334155;
+  --text: #e8eef6;
   --muted: #94a3b8;
-  --brand: #3b82f6;
+  --brand: #2563eb;
   --brand-fg: #ffffff;
+  --success: #22c55e;
+  --warning: #f59e0b;
+  --danger: #ef4444;
 }
 
 @theme inline {
@@ -104,3 +107,16 @@ html.dark .badge-red    { background: #7f1d1d33; color: #fca5a5; border-color: #
 
 ::-webkit-scrollbar { width: 10px; height: 10px; }
 ::-webkit-scrollbar-thumb { background: var(--border); border-radius: 999px; }
+
+/* Drawer animatsiyalari (Diqqat talab qiladi paneli) */
+@keyframes drawerIn { from { transform: translateX(100%); } to { transform: translateX(0); } }
+@keyframes fadeIn { from { opacity: 0; } to { opacity: 1; } }
+.animate-drawer { animation: drawerIn 0.28s cubic-bezier(0.16, 1, 0.3, 1); }
+.animate-fade { animation: fadeIn 0.2s ease-out; }
+
+/* Chapdan ochiluvchi drawer (mobil sidebar) */
+@keyframes drawerInLeft { from { transform: translateX(-100%); } to { transform: translateX(0); } }
+.animate-drawer-left { animation: drawerInLeft 0.28s cubic-bezier(0.16, 1, 0.3, 1); }
+
+/* Foydalanuvchi "Animatsiyalar OFF" tanlaganda */
+.no-anim, .no-anim * { transition: none !important; animation: none !important; }

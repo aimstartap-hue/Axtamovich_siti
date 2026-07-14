@@ -172,3 +172,23 @@ export const OPENING_STAGES: { key: string; label: string }[] = [
   { key: "staff", label: "Xodimlar yollandi" },
   { key: "launch", label: "Ochilish (ishga tushdi)" },
 ];
+
+// Ochilish nazorati moduli — to'liq bosqichlar ketma-ketligi (jsonb kalitlari).
+// Progress foiz emas — qaysi bosqichda ekanligi shu ro'yxatdan bilinadi.
+export const OPENING_STAGES_FULL: { key: string; label: string }[] = [
+  { key: "project", label: "Loyiha" },
+  { key: "rent", label: "Ijara" },
+  { key: "repair", label: "Remont" },
+  { key: "electric", label: "Elektr" },
+  { key: "gas", label: "Gaz" },
+  { key: "water", label: "Suv" },
+  { key: "internet", label: "Internet" },
+  { key: "equipment", label: "Jihoz" },
+  { key: "kitchen", label: "Oshxona" },
+  { key: "camera", label: "Kamera" },
+  { key: "iiko", label: "IIKO" },
+  { key: "ads", label: "Reklama" },
+  { key: "staff", label: "Xodimlar" },
+  { key: "test", label: "Test" },
+  { key: "opened", label: "Ochildi" },
+];

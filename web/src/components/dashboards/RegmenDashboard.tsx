@@ -20,7 +20,7 @@ export default async function RegmenDashboard({ profile }: { profile: Profile })
     );
   }
 
-  const { data: reqs } = await sb.from("requests").select("*").in("branch_id", branchIds);
+  const { data: reqs } = await sb.from("requests").select("id, title, status, branch_id, deadline, created_at, priority").in("branch_id", branchIds);
   const all = (reqs ?? []) as RequestRow[];
   const openCount = all.filter((r) => isOpen(r.status)).length;
   const overdue = all.filter((r) => isOverdue(r)).length;

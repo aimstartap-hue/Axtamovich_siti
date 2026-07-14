@@ -1,8 +1,28 @@
 import { describe, it, expect } from "vitest";
-import { isOpen, isClosed, isInProgress, isAging, isOverdue, currentMonth } from "./helpers";
+import { isOpen, isClosed, isInProgress, isAging, isOverdue, currentMonth, monthRange, branchLabel, currentMonthBounds } from "./helpers";
 
 const daysAgo = (n: number) => { const d = new Date(); d.setDate(d.getDate() - n); return d.toISOString(); };
 const daysAhead = (n: number) => { const d = new Date(); d.setDate(d.getDate() + n); return d.toISOString().slice(0, 10); };
+
+describe("currentMonthBounds — default filter davri", () => {
+  it("oy boshi va oxiri", () => {
+    const b = currentMonthBounds(new Date("2026-07-15T00:00:00Z"));
+    expect(b.from).toBe("2026-07-01");
+    expect(b.to).toBe("2026-07-31");
+  });
+  it("fevral (28/29 kun)", () => {
+    expect(currentMonthBounds(new Date("2026-02-10T00:00:00Z")).to).toBe("2026-02-28");
+  });
+});
+
+describe("branchLabel — kompaniya prefiksini olib tashlaydi", () => {
+  it("qavs ichidagi filial nomini oladi", () => {
+    expect(branchLabel("Zahratun fast-food (Jondor-1)")).toBe("Jondor-1");
+  });
+  it("qavssiz nom o'zgarmaydi", () => {
+    expect(branchLabel("G'ijduvon")).toBe("G'ijduvon");
+  });
+});
 
 describe("status guruhlari", () => {
   it("isOpen", () => {

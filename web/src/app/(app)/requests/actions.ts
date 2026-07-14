@@ -11,7 +11,24 @@ import {
   canDelegateToManager, canAxoReview,
 } from "@/lib/workflow";
 import { DEFAULT_CEO_THRESHOLD, type Role } from "@/lib/constants";
+import { logError } from "@/lib/logError";
 import type { RequestRow } from "@/lib/types";
+
+/** FormData JSON maydonini xavfsiz parse qiladi (buzuq bo'lsa fallback). */
+function safeParseJson<T>(raw: FormDataEntryValue | null, fallback: T, scope: string): T {
+  try {
+    return JSON.parse(String(raw || "")) as T;
+  } catch (e) {
+    logError(scope, e, { raw: String(raw).slice(0, 200) });
+    return fallback;
+  }
+}
+
+/** Mutation xatosini markaziy logga yozadi (jim ketmasligi uchun). true = muvaffaqiyat. */
+function dbOk(result: { error: unknown }, scope: string, ctx: Record<string, unknown> = {}): boolean {
+  if (result.error) { logError(scope, result.error, ctx); return false; }
+  return true;
+}
 
 type SB = Awaited<ReturnType<typeof createClient>>;
 
@@ -46,25 +63,35 @@ export async function createRequestAction(_prev: unknown, formData: FormData) {
   const description = String(formData.get("description") || "").trim();
   const branchId = formData.get("branch_id") ? Number(formData.get("branch_id")) : null;
   const priority = String(formData.get("priority") || "normal");
-  const photos = JSON.parse(String(formData.get("photos_json") || "[]"));
+  const photos = safeParseJson<string[]>(formData.get("photos_json"), [], "createRequest.photos");
 
   if (!title) return { error: "Sarlavhani kiriting." };
   if (type === "maintenance" && !branchId) return { error: "Filialni tanlang." };
 
+  // Yangi filial oqimi: Open Group -> CEO -> Moliya (AXO YO'Q).
+  const startStat = type === "new_branch" ? "pending_ceo" : startStatus();
   const base = {
     org_id: profile.org_id, type, title, description, branch_id: branchId,
-    created_by: profile.id, status: startStatus(), photos_json: photos,
+    created_by: profile.id, status: startStat, photos_json: photos,
   };
-  let { data, error } = await sb.from("requests").insert({ ...base, priority }).select("id").single();
+  // Yangi filial smetasi (additiv — ustunlar mavjud: estimated_amount, opening_budget)
+  const extra: Record<string, unknown> = {};
+  if (type === "new_branch") {
+    const est = formData.get("estimated_amount");
+    if (est) extra.estimated_amount = Number(est);
+    const budget = safeParseJson<Record<string, number> | null>(formData.get("opening_budget"), null, "createRequest.budget");
+    if (budget && Object.keys(budget).length) extra.opening_budget = budget;
+  }
+  let { data, error } = await sb.from("requests").insert({ ...base, priority, ...extra }).select("id").single();
   // Agar 'priority' ustuni hali qo'shilmagan bo'lsa (0005 migratsiya) — ustunsiz qayta urinish
   if (error && /priority/i.test(error.message)) {
-    ({ data, error } = await sb.from("requests").insert(base).select("id").single());
+    ({ data, error } = await sb.from("requests").insert({ ...base, ...extra }).select("id").single());
   }
   if (error) return { error: error.message };
   if (!data) return { error: "Zayavka yaratilmadi." };
 
   await logEvent(sb, profile.org_id, data.id, profile.id, "Zayavka yaratildi");
-  await notifyRoles(sb, profile.org_id, NOTIFY_ROLES["pending_axo"], data.id, `Yangi zayavka: ${title}`);
+  await notifyRoles(sb, profile.org_id, NOTIFY_ROLES[startStat] ?? [], data.id, `Yangi zayavka: ${title}`);
   revalidatePath("/requests");
   redirect(`/requests/${data.id}`);
 }
@@ -110,7 +137,7 @@ export async function approveAction(formData: FormData) {
   const next = nextStatusOnApprove(r, amount, threshold);
   patch.status = next;
 
-  await sb.from("requests").update(patch).eq("id", id);
+  dbOk(await sb.from("requests").update(patch).eq("id", id), "approve.status", { id, next });
   await logEvent(sb, r.org_id, id, profile.id, "Tasdiqladi", String(formData.get("comment") || "") || undefined);
   await notifyRoles(sb, r.org_id, NOTIFY_ROLES[next] ?? [], id, `Zayavka #${id}: ${r.title}`);
   revalidatePath(`/requests/${id}`);
@@ -128,7 +155,7 @@ export async function rejectAction(formData: FormData) {
   // Faqat tasdiqlash bosqichidagilar rad eta oladi
   if (!canApprove(r, profile.role) && !["ceo", "admin"].includes(profile.role)) return;
 
-  await sb.from("requests").update({ status: "rejected", rejected_by: profile.id }).eq("id", id);
+  dbOk(await sb.from("requests").update({ status: "rejected", rejected_by: profile.id }).eq("id", id), "reject.status", { id });
   await logEvent(sb, r.org_id, id, profile.id, "Rad etdi", String(formData.get("comment") || "") || undefined);
   await sb.from("notifications").insert({
     org_id: r.org_id, user_id: r.created_by, request_id: id, text: `Zayavka #${id} rad etildi`,
@@ -219,9 +246,15 @@ export async function submitReportAction(formData: FormData) {
   if (!r || !canSubmitReport(r, profile.role)) return { error: "Ruxsat yo'q" };
 
   const note = String(formData.get("note") || "");
-  const items = JSON.parse(String(formData.get("items_json") || "[]")) as
-    { name: string; category: string | null; supplier: string | null; qty: number; price: number }[];
-  const photos = JSON.parse(String(formData.get("photos_json") || "[]"));
+  type ReportItemInput = { name: string; category: string | null; supplier: string | null; qty: number; price: number };
+  let items: ReportItemInput[];
+  try {
+    items = JSON.parse(String(formData.get("items_json") || "[]"));
+  } catch (e) {
+    logError("submitReport.items", e);
+    return { error: "Xarajatlar ma'lumotida xato — qayta urinib ko'ring." };
+  }
+  const photos = safeParseJson<string[]>(formData.get("photos_json"), [], "submitReport.photos");
   // Yaxlitlik (punkt 9): jami har doim serverда itemlardan qayta hisoblanadi —
   // mijoz yuborgan songa ishonilmaydi.
   const total = items.reduce((s, it) => s + (Number(it.qty) || 0) * (Number(it.price) || 0), 0);
@@ -237,22 +270,23 @@ export async function submitReportAction(formData: FormData) {
   const { data: rep, error } = await sb.from("reports").insert({
     org_id: r.org_id, request_id: id, note, total, photos_json: photos, submitted_by: profile.id,
   }).select("id").single();
-  if (error) return { error: error.message };
+  if (error) { logError("submitReport.report", error, { id }); return { error: "Hisobotni saqlashda xato. Qayta urinib ko'ring." }; }
 
   if (items.length) {
-    await sb.from("report_items").insert(
+    const itemsRes = await sb.from("report_items").insert(
       items.map((it) => ({
         org_id: r.org_id, report_id: rep.id, name: it.name, category: it.category,
         supplier: it.supplier, qty: it.qty, price: it.price,
       })),
     );
+    dbOk(itemsRes, "submitReport.items", { id, reportId: rep.id });
   }
   // Menejer bajargan bo'lsa -> avval AXO tekshiruvi; aks holda to'g'ridan Moliya/CEO
   const delegated = r.status === "manager_doing";
   const nextStatus = delegated ? "axo_review" : "report_submitted";
   const patch: Record<string, unknown> = { status: nextStatus };
   if (r.type === "maintenance") patch.executed_by = profile.role === "branch_manager" ? "manager" : "axo";
-  await sb.from("requests").update(patch).eq("id", id);
+  dbOk(await sb.from("requests").update(patch).eq("id", id), "submitReport.status", { id, nextStatus });
   await logEvent(sb, r.org_id, id, profile.id, "Hisobot topshirildi");
   await notifyRoles(sb, r.org_id, NOTIFY_ROLES[nextStatus] ?? [], id, `Hisobot topshirildi: #${id}`);
 
@@ -447,14 +481,19 @@ export async function duplicateRequestAction(formData: FormData) {
   const id = Number(formData.get("id"));
   const r = await loadReq(sb, id);
   if (!r) return;
+  // Yangi filial oqimi: to'g'ridan CEO (AXO YO'Q) + smetani ko'chirish
+  const startStat = r.type === "new_branch" ? "pending_ceo" : startStatus();
+  const extra = r.type === "new_branch"
+    ? { estimated_amount: r.estimated_amount, estimated_currency: r.estimated_currency, opening_budget: r.opening_budget }
+    : {};
   const { data } = await sb.from("requests").insert({
     org_id: profile.org_id, type: r.type, title: r.title, description: r.description,
-    branch_id: r.branch_id, created_by: profile.id, status: startStatus(),
-    priority: r.priority ?? "normal", photos_json: [],
+    branch_id: r.branch_id, created_by: profile.id, status: startStat,
+    priority: r.priority ?? "normal", photos_json: [], ...extra,
   }).select("id").single();
   if (!data) return;
   await logEvent(sb, r.org_id, data.id, profile.id, `#${id} asosida takrorlandi`);
-  await notifyRoles(sb, r.org_id, NOTIFY_ROLES["pending_axo"], data.id, `Takroriy zayavka: ${r.title}`);
+  await notifyRoles(sb, r.org_id, NOTIFY_ROLES[startStat] ?? [], data.id, `Takroriy zayavka: ${r.title}`);
   revalidatePath("/requests");
   redirect(`/requests/${data.id}`);
 }

@@ -1,291 +1,266 @@
 import { revalidatePath } from "next/cache";
 import { requireProfile } from "@/lib/auth";
 import { createClient } from "@/lib/supabase/server";
-import { formatMoney } from "@/lib/format";
+import { formatDate, formatMoney } from "@/lib/workflow";
 import { logAudit } from "@/lib/audit";
-import { ROLES, EXPENSE_CATEGORIES, type Role } from "@/lib/constants";
-import { currentMonth } from "@/lib/helpers";
-import MonthFilter from "@/components/MonthFilter";
-import BudgetImport from "@/components/BudgetImport";
+import { ROLES, STATUS_LABELS, type Role } from "@/lib/constants";
+import { currentMonth, branchLabel } from "@/lib/helpers";
+import { evaluateRisk, worstLevel, finalize } from "@/lib/risk/engine";
+import { norm, type Purchase, type RequestDoc, type RiskFinding } from "@/lib/risk/types";
+import { priceFinding, repeatFinding, docsFindings, REPEAT_WINDOW_DAYS } from "@/lib/risk/purchase";
+import { enabledScopes, policyForScope, enabledPolicies } from "@/lib/budget/policy";
+import LimitForm from "@/components/LimitForm";
+import BudgetBoard, { type BudgetRow, type BudgetExpense, type RiskyRequest } from "./BudgetBoard";
+import type { RequestItem } from "@/components/risk/RequestRiskDrawer";
+import type { SummaryItem } from "@/components/risk/RiskSummary";
 
-function prevMonth(m: string) {
-  const [y, mo] = m.split("-").map(Number);
-  const d = new Date(y, mo - 2, 1);
-  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`;
-}
-
-const COMMITTED_STATUSES = ["approved", "funded", "manager_doing", "axo_review"];
-
-// --- Server actions ---------------------------------------------------------
-async function saveBudget(formData: FormData) {
+// Budjet yozuvini saqlash (fizik: limits jadvali; policy scope orqali tur aniqlanadi)
+async function saveLimit(formData: FormData) {
   "use server";
   const profile = await requireProfile();
   const sb = await createClient();
-  const branch_id = Number(formData.get("branch_id"));
-  const month = String(formData.get("month") || currentMonth());
-  const category = String(formData.get("category") || "");
-  const amount = Number(String(formData.get("amount") || "0").replace(/[^\d.]/g, ""));
-  await sb.from("budgets").upsert(
-    { org_id: profile.org_id, branch_id, month, category, amount },
-    { onConflict: "branch_id,month,category" },
-  );
-  await logAudit(sb, profile.org_id, profile.id, "budget", `Byudjet (${month}${category ? " · " + category : ""}) = ${amount.toLocaleString("ru-RU")} so'm`);
+  const scope = String(formData.get("scope"));
+  const ref = String(formData.get("ref"));
+  const amount = Number(formData.get("amount") || 0);
+  if (!ref || !amount) return;
+  await sb.from("limits").upsert({ org_id: profile.org_id, scope, ref, amount }, { onConflict: "org_id,scope,ref" });
+  await logAudit(sb, profile.org_id, profile.id, "budget", `Budjet (${scope}: ${ref}) = ${amount.toLocaleString("ru-RU")} so'm`);
   revalidatePath("/budgets");
 }
 
-async function copyLastMonth(formData: FormData) {
+async function deleteLimit(formData: FormData) {
   "use server";
-  const profile = await requireProfile();
-  const sb = await createClient();
-  const month = String(formData.get("month") || currentMonth());
-  const prev = prevMonth(month);
-  const { data: rows } = await sb.from("budgets").select("branch_id, category, amount").eq("month", prev);
-  if (rows?.length) {
-    await sb.from("budgets").upsert(
-      rows.map((r) => ({ org_id: profile.org_id, branch_id: r.branch_id, category: r.category ?? "", month, amount: r.amount })),
-      { onConflict: "branch_id,month,category" },
-    );
-    await logAudit(sb, profile.org_id, profile.id, "budget", `${prev} byudjeti ${month} ga nusxalandi (${rows.length} ta)`);
-  }
-  revalidatePath("/budgets");
-}
-
-async function applyAnnual(formData: FormData) {
-  "use server";
-  const profile = await requireProfile();
-  const sb = await createClient();
-  const month = String(formData.get("month") || currentMonth());
-  const year = month.split("-")[0];
-  const { data: rows } = await sb.from("budgets").select("branch_id, category, amount").eq("month", month);
-  if (rows?.length) {
-    const all = [];
-    for (let m = 1; m <= 12; m++) {
-      const ym = `${year}-${String(m).padStart(2, "0")}`;
-      for (const r of rows) all.push({ org_id: profile.org_id, branch_id: r.branch_id, category: r.category ?? "", month: ym, amount: r.amount });
-    }
-    await sb.from("budgets").upsert(all, { onConflict: "branch_id,month,category" });
-    await logAudit(sb, profile.org_id, profile.id, "budget", `${month} byudjeti butun ${year} yilga qo'llandi`);
-  }
-  revalidatePath("/budgets");
-}
-
-async function importBudgets(formData: FormData) {
-  "use server";
-  const profile = await requireProfile();
-  const sb = await createClient();
-  const month = String(formData.get("month") || currentMonth());
-  const rows = JSON.parse(String(formData.get("rows_json") || "[]")) as { branch_id: number; category: string; amount: number }[];
-  if (rows.length) {
-    await sb.from("budgets").upsert(
-      rows.map((r) => ({ org_id: profile.org_id, branch_id: r.branch_id, category: r.category || "", month, amount: r.amount })),
-      { onConflict: "branch_id,month,category" },
-    );
-    await logAudit(sb, profile.org_id, profile.id, "budget", `Excel'dan ${rows.length} ta byudjet import qilindi (${month})`);
-  }
-  revalidatePath("/budgets");
-}
-
-export default async function BudgetsPage({ searchParams }: { searchParams: Promise<{ month?: string }> }) {
   await requireProfile();
-  const sp = await searchParams;
-  const month = sp.month || currentMonth();
+  const sb = await createClient();
+  await sb.from("limits").delete().eq("id", Number(formData.get("id")));
+  revalidatePath("/budgets");
+}
+
+type Rep = { request_id: number; total: number | null; created_at: string; photos_json: string[] | null };
+type Item = { name: string; category: string | null; supplier: string | null; qty: number | null; price: number | null; report: { created_at: string; request: { id: number; branch_id: number | null; status: string; created_by: string } | null } | null };
+
+export default async function BudgetsPage() {
+  const profile = await requireProfile();
+  const month = currentMonth();
+  const now = new Date();
   const sb = await createClient();
 
-  const now = new Date();
-  const isCurrentMonth = month === currentMonth();
-  const daysInMonth = new Date(now.getFullYear(), now.getMonth() + 1, 0).getDate();
-  const elapsed = isCurrentMonth ? now.getDate() / daysInMonth : 1;
-
-  const [{ data: branches }, { data: budgets }, { data: reports }, { data: commits }, { data: catItems }] = await Promise.all([
-    sb.from("branches").select("id, name").order("name"),
-    sb.from("budgets").select("branch_id, category, amount").eq("month", month),
-    sb.from("reports").select("total, created_at, request:requests(branch_id, created_by, creator:profiles!created_by(role))"),
-    sb.from("requests").select("branch_id, estimated_amount, limit_amount").in("status", COMMITTED_STATUSES),
-    sb.from("report_items").select("category, qty, price, report:reports(created_at, request:requests(branch_id))"),
+  const [{ data: limits }, { data: users }, { data: branches }, { data: requests }, { data: reports }, { data: items }] = await Promise.all([
+    sb.from("limits").select("id, scope, ref, amount").order("scope"),
+    sb.from("profiles").select("id, full_name, role"),
+    sb.from("branches").select("id, name"),
+    sb.from("requests").select("id, status, branch_id, created_by, created_at, photos_json"),
+    sb.from("reports").select("request_id, total, created_at, photos_json"),
+    sb.from("report_items").select("name, category, supplier, qty, price, report:reports(created_at, request:requests(id, branch_id, status, created_by))"),
   ]);
 
-  // Byudjet: branch -> (category -> amount). category '' = filial umumiy.
-  const budgetMap = new Map<number, Map<string, number>>();
-  for (const b of budgets ?? []) {
-    const bb = b as { branch_id: number; category: string | null; amount: number };
-    if (!budgetMap.has(bb.branch_id)) budgetMap.set(bb.branch_id, new Map());
-    budgetMap.get(bb.branch_id)!.set(bb.category ?? "", Number(bb.amount));
+  const nameOf = new Map((users ?? []).map((u) => [u.id, u.full_name]));
+  const roleOf = new Map((users ?? []).map((u) => [u.id, u.role as string]));
+  const branchOf = new Map((branches ?? []).map((b) => [b.id, branchLabel(b.name)]));
+  const hasArr = (v: unknown) => Array.isArray(v) && v.length > 0;
+
+  // Zayavka -> yaratuvchi/filial/foto; Hisobot -> zayavka bo'yicha (foto + oy sarfi)
+  const reqPhotos = new Map<number, boolean>();
+  const reqCreator = new Map<number, string>();
+  const reqBranch = new Map<number, number | null>();
+  for (const r of (requests ?? []) as { id: number; created_by: string; branch_id: number | null; photos_json: string[] | null }[]) { reqPhotos.set(r.id, hasArr(r.photos_json)); reqCreator.set(r.id, r.created_by); reqBranch.set(r.id, r.branch_id); }
+  const reportByReq = new Map<number, { hasPhotos: boolean }>();
+  const spentByUser = new Map<string, number>();
+  const spentByBranch = new Map<number, number>();
+  for (const rp of (reports ?? []) as Rep[]) {
+    reportByReq.set(rp.request_id, { hasPhotos: hasArr(rp.photos_json) });
+    if (rp.created_at?.startsWith(month)) {
+      const u = reqCreator.get(rp.request_id); if (u) spentByUser.set(u, (spentByUser.get(u) ?? 0) + (Number(rp.total) || 0));
+      const b = reqBranch.get(rp.request_id); if (b != null) spentByBranch.set(b, (spentByBranch.get(b) ?? 0) + (Number(rp.total) || 0));
+    }
   }
 
-  // Sarflangan (bu oy) — filial va filial+kategoriya bo'yicha + lavozim
-  const spentMap = new Map<number, number>();
-  const spentByRole = new Map<string, number>();
-  for (const r of reports ?? []) {
-    const rr = r as unknown as { total: number; created_at: string; request: { branch_id: number | null; creator: { role: string } | { role: string }[] | null } | null };
-    if (!rr.created_at?.startsWith(month)) continue;
-    const amt = rr.total || 0;
-    if (rr.request?.branch_id) spentMap.set(rr.request.branch_id, (spentMap.get(rr.request.branch_id) ?? 0) + amt);
-    const cr = rr.request?.creator;
-    const role = Array.isArray(cr) ? cr[0]?.role : cr?.role;
-    if (role) spentByRole.set(role, (spentByRole.get(role) ?? 0) + amt);
+  // 1-bosqich: eng arzon narx (butun tizim) + foydalanuvchi xaridlari
+  const benchmarkMin = new Map<string, number>();
+  const purchasesByUser = new Map<string, Purchase[]>();
+  const allItems = (items ?? []) as unknown as Item[];
+  for (const it of allItems) {
+    const price = Number(it.price) || 0;
+    if (it.name && price > 0) { const k = norm(it.name); const m = benchmarkMin.get(k); if (m == null || price < m) benchmarkMin.set(k, price); }
+    const u = it.report?.request?.created_by;
+    if (u && it.report) (purchasesByUser.get(u) ?? purchasesByUser.set(u, []).get(u)!).push({ name: it.name, price, qty: Number(it.qty) || 0, at: it.report.created_at });
   }
-  const spentByCat = new Map<string, number>(); // key `${branch}|${category}`
-  for (const it of catItems ?? []) {
-    const ii = it as unknown as { category: string | null; qty: number; price: number; report: { created_at: string; request: { branch_id: number | null } | null } | null };
-    if (!ii.report?.created_at?.startsWith(month) || !ii.report.request?.branch_id || !ii.category) continue;
-    const key = `${ii.report.request.branch_id}|${ii.category}`;
-    spentByCat.set(key, (spentByCat.get(key) ?? 0) + (Number(ii.qty) || 0) * (Number(ii.price) || 0));
+  // Takroriy xarid soni (foydalanuvchi+mahsulot, oxirgi 15 kun)
+  const windowMs = REPEAT_WINDOW_DAYS * 86_400_000;
+  const repeatCount = new Map<string, number>();
+  for (const [u, ps] of purchasesByUser) for (const p of ps) if (now.getTime() - new Date(p.at).getTime() <= windowMs) { const k = `${u}|${norm(p.name)}`; repeatCount.set(k, (repeatCount.get(k) ?? 0) + 1); }
+
+  // 2-bosqich: joriy oy xarajatlari + har xarid uchun findings (AI Risk primitivlaridan)
+  const expensesByUser = new Map<string, BudgetExpense[]>();
+  const expensesByBranch = new Map<string, BudgetExpense[]>();       // key: branch_id
+  const expensesByCategory = new Map<string, BudgetExpense[]>();     // key: kategoriya nomi
+  const purchasesByBranch = new Map<string, Purchase[]>();
+  const purchasesByCategory = new Map<string, Purchase[]>();
+  const spentByCategory = new Map<string, number>();
+  const push = <T,>(m: Map<string, T[]>, k: string, v: T) => (m.get(k) ?? m.set(k, []).get(k)!).push(v);
+  type ReqAgg = { reqId: number; date: string; employee: string; branch: string; hasReceipt: boolean; hasPhoto: boolean; items: RequestItem[] };
+  const reqAgg = new Map<number, ReqAgg>();
+  for (const it of allItems) {
+    const req = it.report?.request;
+    if (!req?.created_by || !it.report || !it.report.created_at?.startsWith(month)) continue;
+    const u = req.created_by, price = Number(it.price) || 0, rep = reportByReq.get(req.id), amount = (Number(it.qty) || 0) * price;
+    const findings: RiskFinding[] = [];
+    const pf = priceFinding(it.name, price, benchmarkMin); if (pf) findings.push(pf);
+    const rf = repeatFinding(it.name, repeatCount.get(`${u}|${norm(it.name)}`) ?? 0); if (rf) findings.push(rf);
+    findings.push(...docsFindings(!!rep, rep?.hasPhotos ?? false));
+    const branch = req.branch_id ? branchOf.get(req.branch_id) ?? "—" : "—";
+    const catKey = it.category || "Boshqa";
+    const exp: BudgetExpense = {
+      date: formatDate(it.report.created_at), reqId: req.id, name: it.name, category: it.category,
+      branch, amount, supplier: it.supplier, employee: nameOf.get(u) ?? "—", hasReceipt: !!rep, hasPhoto: rep?.hasPhotos ?? false,
+      statusLabel: STATUS_LABELS[req.status] ?? req.status, findings, riskLevel: findings.length ? worstLevel(findings.map((f) => f.level)) : "good",
+    };
+    push(expensesByUser, u, exp);
+    if (req.branch_id != null) { push(expensesByBranch, String(req.branch_id), exp); push(purchasesByBranch, String(req.branch_id), { name: it.name, price, qty: Number(it.qty) || 0, at: it.report.created_at }); }
+    push(expensesByCategory, catKey, exp);
+    push(purchasesByCategory, catKey, { name: it.name, price, qty: Number(it.qty) || 0, at: it.report.created_at });
+    spentByCategory.set(catKey, (spentByCategory.get(catKey) ?? 0) + amount);
+    // Zayavka bo'yicha to'plash (har zayavka alohida tahlil uchun)
+    const ra: ReqAgg = reqAgg.get(req.id) ?? { reqId: req.id, date: formatDate(it.report.created_at), employee: nameOf.get(u) ?? "—", branch, hasReceipt: !!rep, hasPhoto: rep?.hasPhotos ?? false, items: [] };
+    ra.items.push({ name: it.name, category: it.category, amount, supplier: it.supplier, findings });
+    reqAgg.set(req.id, ra);
   }
 
-  const committedMap = new Map<number, number>();
-  for (const c of commits ?? []) {
-    const cc = c as { branch_id: number | null; estimated_amount: number | null; limit_amount: number | null };
-    if (!cc.branch_id) continue;
-    committedMap.set(cc.branch_id, (committedMap.get(cc.branch_id) ?? 0) + Number(cc.limit_amount ?? cc.estimated_amount ?? 0));
+  // Xavfli zayavkalar ro'yxati (har biri alohida; drawer faqat shu zayavkani ko'rsatadi)
+  const riskyRequests: RiskyRequest[] = [...reqAgg.values()]
+    .map((ra) => {
+      const seen = new Set<string>(); const all: RiskFinding[] = [];
+      for (const it of ra.items) for (const f of it.findings) if (!seen.has(f.title)) { seen.add(f.title); all.push(f); }
+      const res = finalize(all);
+      const req: RiskyRequest = {
+        reqId: ra.reqId, hasReceipt: ra.hasReceipt, hasPhoto: ra.hasPhoto, items: ra.items, date: ra.date, employee: ra.employee,
+        position: ROLES[roleOf.get(reqCreator.get(ra.reqId) ?? "") as Role] ?? "", branch: ra.branch,
+        amount: ra.items.reduce((s, i) => s + i.amount, 0), riskLevel: res.level, ruleIds: [...new Set(res.findings.map((f) => f.ruleId))],
+        topReason: res.findings[0]?.detail ?? "",
+      };
+      return { req, score: res.score };
+    })
+    .filter((x) => x.req.riskLevel !== "good")
+    .sort((a, b) => b.score - a.score)
+    .map((x) => x.req);
+
+  // Foydalanuvchi bo'yicha hujjat holati (joriy oy)
+  const docsByUser = new Map<string, RequestDoc[]>();
+  for (const r of (requests ?? []) as { id: number; status: string; created_by: string; created_at: string }[]) {
+    if (!r.created_at?.startsWith(month)) continue;
+    const rep = reportByReq.get(r.id);
+    (docsByUser.get(r.created_by) ?? docsByUser.set(r.created_by, []).get(r.created_by)!).push({ id: r.id, status: r.status, hasReport: !!rep, hasPhotos: (rep?.hasPhotos ?? false) || reqPhotos.get(r.id) === true });
   }
 
-  let totBudget = 0, totSpent = 0, totCommitted = 0;
-  for (const b of branches ?? []) {
-    totBudget += Number(budgetMap.get(b.id)?.get("") ?? 0);
-    totSpent += spentMap.get(b.id) ?? 0;
-    totCommitted += committedMap.get(b.id) ?? 0;
+  const usersOfRole = (role: string) => (users ?? []).filter((u) => u.role === role).map((u) => u.id);
+  const agg = <T,>(ids: string[], m: Map<string, T[]>): T[] => ids.flatMap((id) => m.get(id) ?? []);
+
+  // --- Budjet qatorlari: yoqilgan scope'lar (role / user / branch / category) ---
+  const scopes = new Set(enabledScopes());
+  const rows: BudgetRow[] = ((limits ?? []) as { id: number; scope: string; ref: string; amount: number }[])
+    .filter((l) => scopes.has(l.scope))
+    .map((l) => {
+      // Scope'ga qarab: sarf, xarajatlar, xaridlar va yorliq turlicha yig'iladi
+      let spent = 0, expenses: BudgetExpense[] = [], purchases: Purchase[] = [], docs: RequestDoc[] = [], label = l.ref;
+      if (l.scope === "user") {
+        spent = spentByUser.get(l.ref) ?? 0; expenses = expensesByUser.get(l.ref) ?? []; purchases = purchasesByUser.get(l.ref) ?? []; docs = docsByUser.get(l.ref) ?? [];
+        label = nameOf.get(l.ref) ?? `#${l.ref}`;
+      } else if (l.scope === "role") {
+        const ids = usersOfRole(l.ref);
+        spent = ids.reduce((s, id) => s + (spentByUser.get(id) ?? 0), 0);
+        expenses = agg(ids, expensesByUser); purchases = agg(ids, purchasesByUser); docs = agg(ids, docsByUser);
+        label = ROLES[l.ref as Role] ?? l.ref;
+      } else if (l.scope === "branch") {
+        spent = spentByBranch.get(Number(l.ref)) ?? 0; expenses = expensesByBranch.get(l.ref) ?? []; purchases = purchasesByBranch.get(l.ref) ?? [];
+        label = branchOf.get(Number(l.ref)) ?? `#${l.ref}`;
+      } else if (l.scope === "category") {
+        spent = spentByCategory.get(l.ref) ?? 0; expenses = expensesByCategory.get(l.ref) ?? []; purchases = purchasesByCategory.get(l.ref) ?? [];
+        label = l.ref;
+      }
+      const risk = evaluateRisk({ limit: Number(l.amount), spent, purchases, benchmarkMin, requests: docs, now });
+      return {
+        key: `${l.scope}:${l.ref}`, scope: l.scope, label, subtitle: policyForScope(l.scope)?.subtitleFor(l.scope) ?? l.scope, limitId: l.id,
+        limit: Number(l.amount), spent, pct: l.amount ? Math.round((spent / Number(l.amount)) * 100) : 0,
+        risk, expenses: expenses.slice().sort((a, b) => (a.date < b.date ? 1 : -1)), findingRules: risk.findings.map((f) => f.ruleId),
+      };
+    })
+    .sort((a, b) => b.risk.score - a.risk.score);
+
+  const countWith = (rule: string) => rows.filter((p) => p.findingRules.includes(rule)).length;
+  const summary: SummaryItem[] = [
+    { ruleId: "limit", label: "Limitdan oshgan / xavf", count: countWith("limit"), unit: "lavozim", level: "critical" },
+    { ruleId: "price", label: "Narx anomaliyasi", count: countWith("price"), unit: "lavozim", level: "risk" },
+    { ruleId: "repeat", label: "Takroriy xarid", count: countWith("repeat"), unit: "lavozim", level: "risk" },
+    { ruleId: "docs", label: "Hujjat muammolari", count: countWith("docs"), unit: "lavozim", level: "critical" },
+  ];
+
+  const policyLabels = enabledPolicies().map((p) => p.label).join(" · ");
+
+  // Budjetni FAQAT moliyachi boshqaradi va hammasini ko'radi.
+  // (Admin faqat ruxsatlarni boshqaradi — budjetга aralashmaydi.)
+  // Boshqa lavozim egasi FAQAT o'ziga ajratilgan budjetni ko'radi (read-only).
+  const isBudgetManager = profile.role === "finance";
+  const myRows = rows.filter((r) => r.key === `role:${profile.role}` || r.key === `user:${profile.id}`);
+
+  if (!isBudgetManager) {
+    return (
+      <div className="space-y-5">
+        <div>
+          <h1 className="text-xl font-bold tracking-tight">Mening budjetim</h1>
+          <p className="text-xs" style={{ color: "var(--muted)" }}>Sizga ajratilgan budjet · {month}</p>
+        </div>
+        <MyBudget rows={myRows} />
+      </div>
+    );
   }
-  const totRemaining = totBudget - totSpent - totCommitted;
-  const branchOpts = (branches ?? []).map((b) => ({ id: b.id, name: b.name }));
 
   return (
-    <div className="space-y-4">
-      <div className="flex items-center justify-between gap-3">
-        <h1 className="text-xl font-bold">Filial byudjeti</h1>
-        <MonthFilter month={month} />
+    <div className="space-y-5">
+      <div>
+        <h1 className="text-xl font-bold tracking-tight">Budjet</h1>
+        <p className="text-xs" style={{ color: "var(--muted)" }}>{policyLabels} bo&apos;yicha nazorat · AI Risk · {month}</p>
       </div>
 
-      {/* Vositalar: nusxa / yillik / import (punkt 17, 20) */}
-      <div className="flex flex-wrap gap-2">
-        <form action={copyLastMonth}>
-          <input type="hidden" name="month" value={month} />
-          <button className="btn btn-ghost !py-1 text-sm">📋 O'tgan oydan nusxala</button>
-        </form>
-        <form action={applyAnnual}>
-          <input type="hidden" name="month" value={month} />
-          <button className="btn btn-ghost !py-1 text-sm">🗓 Butun yilga qo'llash</button>
-        </form>
-      </div>
-      <BudgetImport branches={branchOpts} month={month} action={importBudgets} />
+      <LimitForm action={saveLimit}
+        branches={(branches ?? []).map((b) => ({ id: String(b.id), name: b.name }))}
+        users={(users ?? []).map((u) => ({ id: u.id, name: u.full_name }))} />
 
-      {/* Umumiy (org) rollup */}
-      <div className="card p-4">
-        <div className="text-sm font-semibold mb-2">Umumiy (barcha filiallar)</div>
-        <div className="grid grid-cols-2 md:grid-cols-4 gap-3 text-sm">
-          <Stat label="Byudjet" value={formatMoney(totBudget)} />
-          <Stat label="Sarflandi" value={formatMoney(totSpent)} />
-          <Stat label="Majburiyat" value={formatMoney(totCommitted)} />
-          <Stat label="Qoldiq" value={formatMoney(totRemaining)} danger={totRemaining < 0} />
-        </div>
-      </div>
-
-      {/* Lavozim bo'yicha sarf */}
-      {spentByRole.size > 0 && (
-        <div className="card p-4">
-          <div className="text-sm font-semibold mb-2">Lavozim bo'yicha sarf ({month})</div>
-          <div className="space-y-1">
-            {[...spentByRole.entries()].sort((a, b) => b[1] - a[1]).map(([role, amt]) => (
-              <div key={role} className="flex justify-between text-sm">
-                <span className="text-muted">{ROLES[role as Role] ?? role}</span>
-                <span className="font-medium">{formatMoney(amt)}</span>
-              </div>
-            ))}
-          </div>
-        </div>
-      )}
-
-      {/* Filial bo'yicha */}
-      <div className="space-y-2">
-        {(branches ?? []).map((b) => {
-          const cats = budgetMap.get(b.id) ?? new Map<string, number>();
-          const budget = Number(cats.get("") ?? 0);
-          const spent = spentMap.get(b.id) ?? 0;
-          const committed = committedMap.get(b.id) ?? 0;
-          const used = spent + committed;
-          const pct = budget ? Math.round((used / budget) * 100) : 0;
-          const remaining = budget - used;
-          const over = budget > 0 && used > budget;
-          const catBudgets = [...cats.entries()].filter(([c]) => c !== "");
-          return (
-            <div key={b.id} className="card p-4">
-              <div className="flex items-center justify-between gap-3 mb-2">
-                <div className="font-medium">{b.name}</div>
-                <form action={saveBudget} className="flex items-center gap-2">
-                  <input type="hidden" name="branch_id" value={b.id} />
-                  <input type="hidden" name="month" value={month} />
-                  <input type="hidden" name="category" value="" />
-                  <input name="amount" type="number" defaultValue={budget || ""} placeholder="Byudjet"
-                    className="input !py-1 w-36 text-sm" />
-                  <button className="btn btn-ghost !py-1 text-sm">Saqlash</button>
-                </form>
-              </div>
-              {budget > 0 && (
-                <>
-                  <div className="h-2 rounded-full bg-surface-2 overflow-hidden flex">
-                    <div className={`h-full ${over ? "bg-danger" : "bg-brand"}`} style={{ width: `${Math.min((spent / budget) * 100, 100)}%` }} />
-                    <div className="h-full bg-brand/40" style={{ width: `${Math.min((committed / budget) * 100, Math.max(0, 100 - (spent / budget) * 100))}%` }} />
-                  </div>
-                  <div className="flex flex-wrap justify-between gap-x-4 text-xs mt-1">
-                    <span className="text-muted">Sarflandi: {formatMoney(spent)}</span>
-                    <span className="text-muted">Majburiyat: {formatMoney(committed)}</span>
-                    <span className={over ? "text-danger font-semibold" : "text-muted"}>Qoldiq: {formatMoney(remaining)} ({pct}%)</span>
-                  </div>
-                  {isCurrentMonth && spent > 0 && elapsed > 0 && (() => {
-                    const projected = Math.round(spent / elapsed);
-                    const willOver = projected > budget;
-                    return (
-                      <div className={`text-xs mt-1 ${willOver ? "text-danger" : "text-muted"}`}>
-                        Bu tezlikda oy oxiriga: {formatMoney(projected)} — {willOver ? "byudjetdan oshadi ⚠️" : "byudjetga sig'adi"}
-                      </div>
-                    );
-                  })()}
-                </>
-              )}
-
-              {/* Kategoriya byudjetlari (punkt 7) */}
-              <details className="mt-3">
-                <summary className="cursor-pointer text-xs text-brand">Kategoriya byudjetlari {catBudgets.length ? `(${catBudgets.length})` : ""}</summary>
-                <div className="mt-2 space-y-2">
-                  {catBudgets.map(([cat, amt]) => {
-                    const cspent = spentByCat.get(`${b.id}|${cat}`) ?? 0;
-                    const cover = amt > 0 && cspent > amt;
-                    return (
-                      <div key={cat} className="text-xs">
-                        <div className="flex justify-between">
-                          <span>{cat}</span>
-                          <span className={cover ? "text-danger font-semibold" : "text-muted"}>{formatMoney(cspent)} / {formatMoney(amt)}</span>
-                        </div>
-                        <div className="h-1.5 rounded-full bg-surface-2 overflow-hidden mt-0.5">
-                          <div className={`h-full ${cover ? "bg-danger" : "bg-brand"}`} style={{ width: `${Math.min(amt ? (cspent / amt) * 100 : 0, 100)}%` }} />
-                        </div>
-                      </div>
-                    );
-                  })}
-                  <form action={saveBudget} className="flex flex-wrap items-end gap-2 pt-1">
-                    <input type="hidden" name="branch_id" value={b.id} />
-                    <input type="hidden" name="month" value={month} />
-                    <select name="category" className="select !py-1 text-xs flex-1 min-w-40">
-                      {EXPENSE_CATEGORIES.map((c) => <option key={c} value={c}>{c}</option>)}
-                    </select>
-                    <input name="amount" type="number" placeholder="Summa" className="input !py-1 w-28 text-xs" />
-                    <button className="btn btn-ghost !py-1 text-xs">+ Qo'shish</button>
-                  </form>
-                </div>
-              </details>
-            </div>
-          );
-        })}
-        {(branches ?? []).length === 0 && <div className="card p-6 text-center text-muted text-sm">Filial yo'q.</div>}
-      </div>
+      <BudgetBoard rows={rows} riskyRequests={riskyRequests} summary={summary} deleteLimit={deleteLimit} />
     </div>
   );
 }
 
-function Stat({ label, value, danger }: { label: string; value: string; danger?: boolean }) {
+// --- Shaxsiy budjet ko'rinishi (read-only) — lavozim egasi faqat o'zinikini ko'radi ---
+function MyBudget({ rows }: { rows: BudgetRow[] }) {
+  if (rows.length === 0) {
+    return <div className="rounded-2xl p-10 text-center text-sm" style={{ background: "var(--surface)", border: "1px solid var(--border)", color: "var(--muted)" }}>Sizga hali budjet ajratilmagan. Moliyachi bilan bog&apos;laning.</div>;
+  }
   return (
-    <div>
-      <div className="text-xs text-muted">{label}</div>
-      <div className={`font-semibold ${danger ? "text-danger" : ""}`}>{value}</div>
+    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+      {rows.map((r) => {
+        const remaining = r.limit - r.spent;
+        const over = r.pct >= 100;
+        const barColor = over ? "#ef4444" : r.pct >= 90 ? "#f59e0b" : r.pct >= 75 ? "#fbbf24" : "#22c55e";
+        return (
+          <div key={r.key} className="rounded-2xl p-5" style={{ background: "var(--surface)", border: "1px solid var(--border)", boxShadow: "0 10px 28px -20px rgba(0,0,0,.5)" }}>
+            <div className="flex items-start justify-between gap-3 mb-4">
+              <div>
+                <div className="font-semibold">{r.label}</div>
+                <div className="text-[11px]" style={{ color: "var(--muted)" }}>{r.subtitle} budjeti</div>
+              </div>
+              <span className="text-xs font-semibold px-2.5 py-1 rounded-full" style={{ background: `${barColor}1f`, color: barColor }}>{r.pct}%</span>
+            </div>
+            <div className="grid grid-cols-3 gap-2 text-center mb-4">
+              <div><div className="text-[11px]" style={{ color: "var(--muted)" }}>Limit</div><div className="text-sm font-bold tabular-nums mt-0.5">{formatMoney(r.limit)}</div></div>
+              <div><div className="text-[11px]" style={{ color: "var(--muted)" }}>Sarflangan</div><div className="text-sm font-bold tabular-nums mt-0.5">{formatMoney(r.spent)}</div></div>
+              <div><div className="text-[11px]" style={{ color: "var(--muted)" }}>Qoldiq</div><div className="text-sm font-bold tabular-nums mt-0.5" style={{ color: remaining < 0 ? "#ef4444" : "#22c55e" }}>{formatMoney(remaining)}</div></div>
+            </div>
+            <div className="h-2.5 rounded-full overflow-hidden" style={{ background: "var(--surface-2)" }}>
+              <div className="h-full rounded-full" style={{ width: `${Math.min(r.pct, 100)}%`, background: barColor, transition: "width .6s cubic-bezier(.16,1,.3,1)" }} />
+            </div>
+          </div>
+        );
+      })}
     </div>
   );
 }

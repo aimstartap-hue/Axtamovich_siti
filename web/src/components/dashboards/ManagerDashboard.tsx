@@ -8,7 +8,7 @@ import type { Profile, RequestRow } from "@/lib/types";
 export default async function ManagerDashboard({ profile }: { profile: Profile }) {
   const sb = await createClient();
   const [{ data: reqs }, { data: ub }, { data: branch }] = await Promise.all([
-    sb.from("requests").select("*").order("id", { ascending: false }),
+    sb.from("requests").select("id, type, title, status, created_at, deadline, priority, created_by, branch_id, rejected_by, deadline_disputed, rating").order("id", { ascending: false }),
     sb.from("user_branches").select("branch_id").eq("user_id", profile.id),
     profile.branch_id ? sb.from("branches").select("name").eq("id", profile.branch_id).single() : Promise.resolve({ data: null }),
   ]);

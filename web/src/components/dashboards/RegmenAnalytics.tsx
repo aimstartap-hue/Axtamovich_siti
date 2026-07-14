@@ -4,7 +4,7 @@ import { useMemo, useState } from "react";
 import Link from "next/link";
 import { STATUS_LABELS } from "@/lib/constants";
 import { formatDate } from "@/lib/workflow";
-import { isOpen, isInProgress, isClosed } from "@/lib/helpers";
+import { isOpen, isInProgress } from "@/lib/helpers";
 
 export interface RegReq {
   id: number;

@@ -7,7 +7,7 @@ import type { Profile, RequestRow } from "@/lib/types";
 export default async function AxoDashboard({ profile }: { profile: Profile }) {
   const sb = await createClient();
   const [{ data: reqs }, { data: setting }, { data: branches }] = await Promise.all([
-    sb.from("requests").select("*").eq("type", "maintenance").order("deadline", { ascending: true, nullsFirst: false }),
+    sb.from("requests").select("id, type, title, status, created_at, deadline, priority, created_by, branch_id").eq("type", "maintenance").order("deadline", { ascending: true, nullsFirst: false }),
     sb.from("org_settings").select("value").eq("key", "axo_open_limit").maybeSingle(),
     sb.from("branches").select("id, name"),
   ]);
