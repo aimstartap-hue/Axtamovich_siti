@@ -1,6 +1,7 @@
 "use client";
 
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 import { useMemo, useState } from "react";
 import { Eye, History, ChevronUp, ChevronDown, ChevronsUpDown, ChevronLeft, ChevronRight, Inbox } from "lucide-react";
 import { formatMoney } from "@/lib/format";
@@ -49,6 +50,7 @@ type SortKey = "id" | "requested" | "actual" | "deadline" | "createdAt";
 const PAGE_SIZES = [10, 25, 50];
 
 export default function RequestsTable({ rows, eventsByReq }: { rows: TableRow[]; eventsByReq: Record<number, TimelineEvent[]> }) {
+  const router = useRouter();
   const [sort, setSort] = useState<{ key: SortKey; dir: 1 | -1 }>({ key: "id", dir: -1 });
   const [page, setPage] = useState(0);
   const [pageSize, setPageSize] = useState(25);
@@ -112,7 +114,7 @@ export default function RequestsTable({ rows, eventsByReq }: { rows: TableRow[];
               const pr = priorityView(r.priority);
               const sla = slaView(r.deadline, r.status);
               return (
-                <tr key={r.id} onClick={() => setDrawer({ id: r.id, title: r.title, statusLabel: st.label })}
+                <tr key={r.id} onClick={() => router.push(`/requests/${r.id}`)}
                   className="cursor-pointer transition group hover:bg-[var(--surface-2)]" style={{ borderBottom: "1px solid var(--border)" }}>
                   <td className="px-3 py-3 pl-4 tabular-nums" style={{ color: "var(--muted)" }}>#{r.id}</td>
                   <td className="px-3 py-3 max-w-[240px]">

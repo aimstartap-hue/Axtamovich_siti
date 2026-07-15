@@ -108,6 +108,7 @@ export default async function RequestDetail({ params }: { params: Promise<{ id: 
       canApprove: canApprove(req, profile.role),
       canReject: canApprove(req, profile.role) || ["ceo", "admin"].includes(profile.role),
       needsDeadline: req.status === "pending_ceo",
+      createdIso: new Date(req.created_at).toISOString().slice(0, 10),
     };
     return <NewBranchDetail data={data} />;
   }

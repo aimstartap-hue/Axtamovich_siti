@@ -30,6 +30,7 @@ export interface NewBranchData {
   canApprove: boolean;
   canReject: boolean;
   needsDeadline: boolean;
+  createdIso: string;
 }
 
 const C = { surface: "var(--surface)", border: "var(--border)", muted: "var(--muted)" };
@@ -40,7 +41,7 @@ export default function NewBranchDetail({ data }: { data: NewBranchData }) {
   const initials = (n: string) => n.split(" ").map((w) => w[0]).slice(0, 2).join("").toUpperCase();
 
   return (
-    <div className="max-w-4xl mx-auto space-y-4">
+    <div className="w-full space-y-4">
       <Link href="/requests" className="text-sm" style={{ color: "var(--brand)" }}>← Zayavkalar</Link>
 
       <div className="rounded-3xl overflow-hidden" style={{ background: C.surface, border: `1px solid ${C.border}`, boxShadow: "0 20px 48px -28px rgba(0,0,0,.55)" }}>
@@ -164,7 +165,7 @@ export default function NewBranchDetail({ data }: { data: NewBranchData }) {
             <div className="grid sm:grid-cols-2 gap-3">
               {data.needsDeadline && (
                 <div><label className="text-[11px] font-semibold" style={{ color: C.muted }}>Muddat (deadline)</label>
-                  <input type="date" name="deadline" className="input mt-1" defaultValue={new Date(new Date().getTime() + 30 * 864e5).toISOString().slice(0, 10)} /></div>
+                  <input type="date" name="deadline" className="input mt-1" defaultValue={data.createdIso} /></div>
               )}
               <div className={data.needsDeadline ? "" : "sm:col-span-2"}><label className="text-[11px] font-semibold" style={{ color: C.muted }}>Izoh (ixtiyoriy)</label>
                 <input name="comment" className="input mt-1" placeholder="Moliyaga izoh…" /></div>
