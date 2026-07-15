@@ -2,8 +2,10 @@ import { notFound } from "next/navigation";
 import Link from "next/link";
 import { requireProfile } from "@/lib/auth";
 import { createClient } from "@/lib/supabase/server";
-import { REQUEST_TYPES, ROLES, FINANCE_ROLES, type Role } from "@/lib/constants";
-import { formatDate, formatMoney, NOTIFY_ROLES } from "@/lib/workflow";
+import { REQUEST_TYPES, ROLES, STATUS_LABELS, FINANCE_ROLES, type Role } from "@/lib/constants";
+import { formatDate, formatMoney, NOTIFY_ROLES, canApprove } from "@/lib/workflow";
+import NewBranchDetail, { type NewBranchData } from "./NewBranchDetail";
+import { formatNumber } from "@/lib/format";
 import { isClosed } from "@/lib/helpers";
 import StatusBadge from "@/components/StatusBadge";
 import PriorityBadge from "@/components/PriorityBadge";
@@ -68,79 +70,46 @@ export default async function RequestDetail({ params }: { params: Promise<{ id: 
 
   const isMine = req.created_by === profile.id;
 
-  // --- Yangi filial so'rovi: workflow emas, o'qiladigan CHEK (smeta) ---
+  // --- Yangi filial so'rovi: premium ko'rib chiqish oynasi (CEO tasdiq/rad) ---
   if (req.type === "new_branch") {
+    const PART_ICON: Record<string, string> = { Devor: "🧱", Pol: "🪵", Tom: "🏠", Eshik: "🚪", Oyna: "🪟", Sklad: "📦", Elektr: "⚡", Gaz: "🔥", Suv: "🚰", Jihoz: "🛠", Kamera: "📹", Reklama: "📣", Internet: "🌐", Konditsioner: "❄️", Ventilyatsiya: "🌬", Kassa: "🧾", Ombor: "📦", Yoritish: "💡" };
     const estimate = Object.entries(req.opening_budget ?? {}) as [string, number][];
     const total = estimate.length ? estimate.reduce((s, [, v]) => s + Number(v), 0) : Number(req.estimated_amount ?? 0);
-    const evs = (events ?? []) as { action: string; created_at: string }[];
-    return (
-      <div className="max-w-2xl mx-auto space-y-4">
-        <Link href="/requests" className="text-sm text-brand">← Zayavkalar</Link>
+    const positions = estimate.map(([part, amt]) => ({ part, amount: Number(amt), icon: PART_ICON[part] ?? "🏗" }));
+    const top = [...positions].sort((a, b) => b.amount - a.amount)[0];
 
-        {/* CHEK */}
-        <div className="rounded-2xl overflow-hidden" style={{ background: "var(--surface)", border: "1px solid var(--border)", boxShadow: "0 16px 40px -24px rgba(0,0,0,.5)" }}>
-          <div className="px-6 pt-6 pb-4 border-b" style={{ borderColor: "var(--border)" }}>
-            <div className="flex items-start justify-between gap-3">
-              <div>
-                <div className="text-xs" style={{ color: "var(--muted)" }}>Yangi filial so&apos;rovi · #{req.id}</div>
-                <h1 className="text-xl font-bold mt-1 tracking-tight">{req.title}</h1>
-              </div>
-              <StatusBadge status={req.status} />
-            </div>
-            <div className="grid grid-cols-2 gap-3 mt-4 text-sm">
-              {branch && <Info label="Filial" value={branch.name} />}
-              <Info label="Yaratdi" value={creator?.full_name ?? "—"} />
-              <Info label="Sana" value={formatDate(req.created_at)} />
-              <Info label="Muhimlik" value={req.priority === "urgent" ? "Shoshilinch" : req.priority === "low" ? "Kam muhim" : "Oddiy"} />
-            </div>
-            {req.description && <p className="text-sm mt-3 whitespace-pre-wrap" style={{ color: "var(--muted)" }}>{req.description}</p>}
-          </div>
+    const tlColor = (act: string) => { const a = act.toLowerCase(); if (a.includes("rad")) return "#ef4444"; if (a.includes("tasdiq") || a.includes("yopdi") || a.includes("faollash")) return "#22c55e"; if (a.includes("yaratildi")) return "#3b82f6"; return "#94a3b8"; };
+    const timeline = ((events ?? []) as { action: string; created_at: string }[]).map((e) => ({ title: e.action, by: "", date: formatDate(e.created_at), color: tlColor(e.action) }));
+    const commentItems = ((comments ?? []) as { text: string; created_at: string; author: { full_name: string } | { full_name: string }[] | null }[]).map((c) => {
+      const a = Array.isArray(c.author) ? c.author[0] : c.author; return { by: a?.full_name ?? "—", role: "", date: formatDate(c.created_at), text: c.text };
+    });
 
-          {/* Smeta */}
-          {estimate.length > 0 && (
-            <table className="w-full text-sm">
-              <thead><tr className="text-left text-[11px] uppercase tracking-wide" style={{ color: "var(--muted)" }}><th className="font-medium px-6 pt-4 pb-2">Qurilish qismi</th><th className="font-medium px-6 pt-4 pb-2 text-right">Taxminiy summa</th></tr></thead>
-              <tbody>
-                {estimate.map(([part, amt]) => (
-                  <tr key={part} className="border-t" style={{ borderColor: "var(--border)" }}>
-                    <td className="px-6 py-2.5 font-medium">{part}</td>
-                    <td className="px-6 py-2.5 text-right tabular-nums">{formatMoney(Number(amt))}</td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          )}
-          <div className="flex items-center justify-between px-6 py-4 border-t" style={{ borderColor: "var(--border)", background: "color-mix(in srgb, var(--brand) 8%, transparent)" }}>
-            <span className="text-sm font-medium" style={{ color: "var(--muted)" }}>Jami taxminiy xarajat</span>
-            <span className="text-2xl font-extrabold tabular-nums" style={{ color: "var(--brand)" }}>{formatMoney(total)}</span>
-          </div>
+    const high = total >= 15_000_000;
+    const statusColorMap: Record<string, string> = { pending_ceo: "#f59e0b", pending_finance: "#f59e0b", approved: "#3b82f6", funded: "#3b82f6", closed: "#22c55e", rejected: "#ef4444" };
+    const ageDays = Math.floor((new Date().getTime() - new Date(req.created_at).getTime()) / 86_400_000);
 
-          {photos.length > 0 && (
-            <div className="flex flex-wrap gap-2 px-6 py-4 border-t" style={{ borderColor: "var(--border)" }}>
-              {photos.map((u, i) => (
-                // eslint-disable-next-line @next/next/no-img-element
-                <a key={i} href={u} target="_blank" rel="noreferrer"><img src={u} alt="" className="w-20 h-20 object-cover rounded-lg border border-border" /></a>
-              ))}
-            </div>
-          )}
-        </div>
-
-        {/* Tarix */}
-        {evs.length > 0 && (
-          <div className="rounded-2xl p-5" style={{ background: "var(--surface)", border: "1px solid var(--border)" }}>
-            <h2 className="text-sm font-semibold mb-3">Tarix</h2>
-            <div className="space-y-2.5">
-              {evs.map((e, i) => (
-                <div key={i} className="flex items-start gap-2.5 text-sm">
-                  <span className="w-1.5 h-1.5 rounded-full mt-1.5 shrink-0" style={{ background: "var(--brand)" }} />
-                  <div><div>{e.action}</div><div className="text-xs" style={{ color: "var(--muted)" }}>{formatDate(e.created_at)}</div></div>
-                </div>
-              ))}
-            </div>
-          </div>
-        )}
-      </div>
-    );
+    const data: NewBranchData = {
+      id: req.id, title: req.title,
+      branch: branch?.name ?? "—", creator: creator?.full_name ?? "—",
+      dateLabel: formatDate(req.created_at), responsible: responsible || "—",
+      statusLabel: STATUS_LABELS[req.status] ?? req.status, statusColor: statusColorMap[req.status] ?? "#3b82f6",
+      priorityLabel: req.priority === "urgent" ? "Shoshilinch" : req.priority === "low" ? "Kam muhim" : "Oddiy prioritet",
+      ageLabel: ageDays <= 0 ? "Bugun" : `${ageDays} kun oldin`,
+      total, positions,
+      ai: {
+        level: high ? "O'rtacha risk" : "Past risk", levelColor: high ? "#f59e0b" : "#22c55e",
+        insights: [
+          { tone: high ? "warn" : "ok", label: "Byudjet", text: `${positions.length} ta pozitsiya · jami ${formatNumber(total)} so'm.` },
+          ...(top ? [{ tone: "warn" as const, label: "Eng qimmat", text: `${top.part} — ${formatNumber(top.amount)} so'm (jamining ${total ? Math.round((top.amount / total) * 100) : 0}%).` }] : []),
+        ],
+        recommendation: "Smetani ko'rib chiqing. Kerak bo'lsa yirik qismlar bo'yicha muqobil taklif so'rang.",
+      },
+      timeline, comments: commentItems,
+      canApprove: canApprove(req, profile.role),
+      canReject: canApprove(req, profile.role) || ["ceo", "admin"].includes(profile.role),
+      needsDeadline: req.status === "pending_ceo",
+    };
+    return <NewBranchDetail data={data} />;
   }
 
   // Narx benchmark (punkt 21) — faqat moliya/rahbariyatga ko'rinadi.
