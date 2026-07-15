@@ -64,13 +64,19 @@ export default function NewRequestForm({
           <label className="label">Sarlavha</label>
           <input name="title" className="input" placeholder="Masalan: Pechim buzildi" required />
         </div>
-        <div>
-          <label className="label">Muhimlik</label>
-          <select name="priority" className="select" defaultValue="normal">
-            <option value="urgent">🔴 Shoshilinch</option>
-            <option value="normal">Oddiy</option>
-            <option value="low">Kam muhim</option>
-          </select>
+        <div className="grid grid-cols-2 gap-3">
+          <div>
+            <label className="label">Muhimlik</label>
+            <select name="priority" className="select" defaultValue="normal">
+              <option value="urgent">🔴 Shoshilinch</option>
+              <option value="normal">Oddiy</option>
+              <option value="low">Kam muhim</option>
+            </select>
+          </div>
+          <div>
+            <label className="label">Sana</label>
+            <input type="date" name="created_date" className="input" defaultValue={new Date().toISOString().slice(0, 10)} max={new Date().toISOString().slice(0, 10)} />
+          </div>
         </div>
         <div>
           <label className="label">Filial</label>

@@ -31,6 +31,8 @@ export default function NewBranchEstimate({ branches, employeeName, orgName }: {
   const router = useRouter();
   const [branchId, setBranchId] = useState("");
   const [priority, setPriority] = useState("normal");
+  const today = new Date().toISOString().slice(0, 10);
+  const [createdDate, setCreatedDate] = useState(today);
   const [rows, setRows] = useState<Row[]>(() => [newRow()]);
   const [description, setDescription] = useState("");
   const [photos, setPhotos] = useState<string[]>([]);
@@ -61,6 +63,7 @@ export default function NewBranchEstimate({ branches, employeeName, orgName }: {
     fd.set("photos_json", JSON.stringify(photos));
     fd.set("estimated_amount", String(total));
     fd.set("opening_budget", JSON.stringify(budgetObj()));
+    fd.set("created_date", createdDate);
     const res = await createRequestAction(null, fd);
     if (res?.error) { setError(res.error); setBusy(false); }
   }
@@ -109,8 +112,8 @@ export default function NewBranchEstimate({ branches, employeeName, orgName }: {
       </div>
 
       <div className="rounded-3xl p-6 sm:p-8" style={{ background: "var(--surface)", border: "1px solid var(--border)", boxShadow: "0 20px 48px -28px rgba(0,0,0,.55)" }}>
-        {/* Yuqori: filial / muhimlik */}
-        <div className="grid sm:grid-cols-2 gap-4">
+        {/* Yuqori: filial / muhimlik / sana */}
+        <div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-4">
           <div>
             <label className="text-[13px] font-medium mb-1.5 block">Yangi filial</label>
             <select value={branchId} onChange={(e) => setBranchId(e.target.value)} className="w-full text-sm px-3.5 py-2.5 rounded-xl outline-none" style={sel}>
@@ -125,6 +128,10 @@ export default function NewBranchEstimate({ branches, employeeName, orgName }: {
               <option value="urgent">🔴 Shoshilinch</option>
               <option value="low">🟢 Kam muhim</option>
             </select>
+          </div>
+          <div>
+            <label className="text-[13px] font-medium mb-1.5 block">Sana</label>
+            <input type="date" value={createdDate} max={today} onChange={(e) => setCreatedDate(e.target.value)} className="w-full text-sm px-3.5 py-2.5 rounded-xl outline-none" style={sel} />
           </div>
         </div>
 

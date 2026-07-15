@@ -76,6 +76,9 @@ export async function createRequestAction(_prev: unknown, formData: FormData) {
   };
   // Yangi filial smetasi (additiv — ustunlar mavjud: estimated_amount, opening_budget)
   const extra: Record<string, unknown> = {};
+  // Foydalanuvchi sanani o'zi tanlashi mumkin (kechga qolsa — o'tgan kun). Bo'sh bo'lsa DB default (hozir).
+  const createdDate = String(formData.get("created_date") || "").trim();
+  if (/^\d{4}-\d{2}-\d{2}$/.test(createdDate)) extra.created_at = new Date(`${createdDate}T12:00:00`).toISOString();
   if (type === "new_branch") {
     const est = formData.get("estimated_amount");
     if (est) extra.estimated_amount = Number(est);
