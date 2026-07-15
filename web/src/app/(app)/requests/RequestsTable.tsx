@@ -3,12 +3,11 @@
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useMemo, useState } from "react";
-import { Eye, History, ChevronUp, ChevronDown, ChevronsUpDown, ChevronLeft, ChevronRight, Inbox } from "lucide-react";
+import { Eye, ChevronUp, ChevronDown, ChevronsUpDown, ChevronLeft, ChevronRight, Inbox } from "lucide-react";
 import { formatMoney } from "@/lib/format";
 import { formatDate } from "@/lib/workflow";
 import type { Priority } from "@/lib/constants";
 import { statusView, priorityView, slaView, relativeTime, type Tone } from "@/lib/requests-view";
-import TimelineDrawer, { type TimelineEvent, type DrawerRow } from "./TimelineDrawer";
 
 export interface TableRow {
   id: number;
@@ -49,12 +48,11 @@ function Chip({ label, tone, dot }: { label: string; tone: Tone; dot?: boolean }
 type SortKey = "id" | "requested" | "actual" | "deadline" | "createdAt";
 const PAGE_SIZES = [10, 25, 50];
 
-export default function RequestsTable({ rows, eventsByReq }: { rows: TableRow[]; eventsByReq: Record<number, TimelineEvent[]> }) {
+export default function RequestsTable({ rows }: { rows: TableRow[] }) {
   const router = useRouter();
   const [sort, setSort] = useState<{ key: SortKey; dir: 1 | -1 }>({ key: "id", dir: -1 });
   const [page, setPage] = useState(0);
   const [pageSize, setPageSize] = useState(25);
-  const [drawer, setDrawer] = useState<DrawerRow | null>(null);
 
   const sorted = useMemo(() => {
     const val = (r: TableRow): number => {
@@ -145,11 +143,7 @@ export default function RequestsTable({ rows, eventsByReq }: { rows: TableRow[];
                     ) : <span style={{ color: "var(--muted)" }}>—</span>}
                   </td>
                   <td className="px-3 py-3 pr-4" onClick={(e) => e.stopPropagation()}>
-                    <div className="flex items-center justify-end gap-1">
-                      <button onClick={() => setDrawer({ id: r.id, title: r.title, statusLabel: st.label })}
-                        className="p-1.5 rounded-lg hover:bg-[var(--surface)] transition" title="Timeline" aria-label="Timeline">
-                        <History size={16} style={{ color: "var(--muted)" }} />
-                      </button>
+                    <div className="flex items-center justify-end">
                       <Link href={`/requests/${r.id}`} className="p-1.5 rounded-lg hover:bg-[var(--surface)] transition" title="Ko'rish" aria-label="Ko'rish">
                         <Eye size={16} style={{ color: "var(--muted)" }} />
                       </Link>
@@ -182,8 +176,6 @@ export default function RequestsTable({ rows, eventsByReq }: { rows: TableRow[];
           </div>
         </div>
       </div>
-
-      <TimelineDrawer row={drawer} events={drawer ? eventsByReq[drawer.id] ?? [] : []} onClose={() => setDrawer(null)} />
     </div>
   );
 }

@@ -7,7 +7,6 @@ import { currentOwner } from "@/lib/requests-view";
 import { FINANCE_ROLES, type Priority } from "@/lib/constants";
 import RequestKpis, { type KpiItem } from "./RequestKpis";
 import RequestsTable, { type TableRow } from "./RequestsTable";
-import type { TimelineEvent } from "./TimelineDrawer";
 
 export interface RequestsSP { q?: string; status?: string; type?: string; priority?: string; branch?: string; owner?: string; from?: string; to?: string; kpi?: string }
 
@@ -60,11 +59,9 @@ export default async function RequestsBoard({ sp, branches }: { sp: RequestsSP; 
     return true;
   });
 
-  // --- Events -> timeline + oxirgi harakat ---
-  const eventsByReq: Record<number, TimelineEvent[]> = {};
+  // --- Events -> oxirgi harakat ---
   const lastAction = new Map<number, { text: string; at: string }>();
-  for (const e of (events ?? []) as { request_id: number; action: string; comment: string | null; user_id: string | null; created_at: string }[]) {
-    (eventsByReq[e.request_id] ??= []).push({ action: e.action, comment: e.comment, who: e.user_id ? profileName.get(e.user_id) ?? "—" : "Tizim", at: e.created_at });
+  for (const e of (events ?? []) as { request_id: number; action: string; created_at: string }[]) {
     lastAction.set(e.request_id, { text: e.action, at: e.created_at });
   }
 
@@ -120,13 +117,11 @@ export default async function RequestsBoard({ sp, branches }: { sp: RequestsSP; 
       deadline: r.deadline, createdAt: r.created_at,
     };
   });
-  const shownEvents: Record<number, TimelineEvent[]> = {};
-  for (const r of rows) if (eventsByReq[r.id]) shownEvents[r.id] = eventsByReq[r.id];
 
   return (
     <div className="space-y-4">
       <RequestKpis items={kpis} />
-      <RequestsTable rows={rows} eventsByReq={shownEvents} />
+      <RequestsTable rows={rows} />
     </div>
   );
 }
